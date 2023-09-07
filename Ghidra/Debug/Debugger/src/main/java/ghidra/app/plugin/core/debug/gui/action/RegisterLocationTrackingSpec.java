@@ -22,6 +22,7 @@ import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.*;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.lang.RegisterValue;
+import ghidra.program.util.ProgramLocation;
 import ghidra.trace.model.Trace;
 import ghidra.trace.model.TraceAddressSnapRange;
 import ghidra.trace.model.guest.TracePlatform;
@@ -64,8 +65,9 @@ public interface RegisterLocationTrackingSpec extends LocationTrackingSpec, Loca
 		if (!thread.getLifespan().contains(snap)) {
 			return null;
 		}
-		TraceMemorySpace regs =
-			trace.getMemoryManager().getMemoryRegisterSpace(thread, frame, false);
+		TraceMemorySpace regs = reg.getAddressSpace().isRegisterSpace()
+				? trace.getMemoryManager().getMemoryRegisterSpace(thread, frame, false)
+				: trace.getMemoryManager().getMemorySpace(reg.getAddressSpace(), false);
 		if (regs == null) {
 			return null;
 		}
@@ -92,16 +94,23 @@ public interface RegisterLocationTrackingSpec extends LocationTrackingSpec, Loca
 	}
 
 	@Override
+	default GoToInput getDefaultGoToInput(PluginTool tool, DebuggerCoordinates coordinates,
+			ProgramLocation location) {
+		Register register = computeRegister(coordinates);
+		return GoToInput.offsetOnly(register.getName());
+	}
+
+	@Override
 	default boolean affectedByBytesChange(TraceAddressSpace space,
 			TraceAddressSnapRange range, DebuggerCoordinates coordinates) {
 		if (!LocationTrackingSpec.changeIsCurrent(space, range, coordinates)) {
 			return false;
 		}
 		Register register = computeRegister(coordinates);
-		if (register == null) {
+		AddressSpace as = space.getAddressSpace();
+		if (register == null || register.getAddressSpace() != as) {
 			return false;
 		}
-		AddressSpace as = space.getAddressSpace();
 		AddressRange regRng = coordinates.getPlatform()
 				.getConventionalRegisterRange(as.isRegisterSpace() ? as : null, register);
 		return range.getRange().intersects(regRng);

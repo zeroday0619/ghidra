@@ -371,7 +371,7 @@ public class GhidraProject {
 			throw new IOException("Cancelled");
 		}
 		if (id >= 0) {
-			openPrograms.put(program, new Integer(program.startTransaction("")));
+			openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 		}
 	}
 
@@ -443,7 +443,7 @@ public class GhidraProject {
 		}
 		finally {
 			if (success || id >= 0) {
-				openPrograms.put(program, new Integer(program.startTransaction("")));
+				openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 			}
 		}
 
@@ -497,7 +497,7 @@ public class GhidraProject {
 		}
 		finally {
 			if (success || id >= 0) {
-				openPrograms.put(program, new Integer(program.startTransaction("")));
+				openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 			}
 		}
 	}
@@ -515,7 +515,7 @@ public class GhidraProject {
 			throw new IllegalStateException("Cannot checkpoint a read-only program");
 		}
 		program.endTransaction(id.intValue(), true);
-		openPrograms.put(program, new Integer(program.startTransaction("")));
+		openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 	}
 
 	/**
@@ -530,7 +530,7 @@ public class GhidraProject {
 			throw new IllegalStateException("Cannot rollback a read-only program");
 		}
 		program.endTransaction(id.intValue(), false);
-		openPrograms.put(program, new Integer(program.startTransaction("")));
+		openPrograms.put(program, Integer.valueOf(program.startTransaction("")));
 	}
 
 	/**
@@ -599,21 +599,15 @@ public class GhidraProject {
 			AutoAnalysisManager mgr = AutoAnalysisManager.getAnalysisManager(program);
 			mgr.initializeOptions();
 		}
-		openPrograms.put(program, new Integer(id));
+		openPrograms.put(program, id);
 	}
 
-	public Program importProgram(File file, Language language, CompilerSpec compilerSpec)
-			throws CancelledException, DuplicateNameException, InvalidNameException,
-			VersionException, IOException {
-		return importProgram(file, (DomainFolder) null, language, compilerSpec);
-	}
-
-	public Program importProgram(File file, DomainFolder domainFolder, Language language,
+	public Program importProgram(File file, Language language,
 			CompilerSpec compilerSpec) throws CancelledException, DuplicateNameException,
 			InvalidNameException, VersionException, IOException {
 		MessageLog messageLog = new MessageLog();
-		LoadResults<Program> loadResults = AutoImporter.importByLookingForLcs(file, project,
-			domainFolder.getPathname(), language, compilerSpec, this, messageLog, MONITOR);
+		LoadResults<Program> loadResults = AutoImporter.importByLookingForLcs(file, project, null,
+			language, compilerSpec, this, messageLog, MONITOR);
 		Program program = loadResults.getPrimaryDomainObject();
 		loadResults.releaseNonPrimary(this);
 		initializeProgram(program, false);
@@ -653,16 +647,11 @@ public class GhidraProject {
 		return loadResults.getPrimaryDomainObject();
 	}
 
-	public Program importProgram(File file) throws CancelledException, DuplicateNameException,
-			InvalidNameException, VersionException, IOException {
-		return importProgram(file, (DomainFolder) null);
-	}
-
-	public Program importProgram(File file, DomainFolder domainFolder) throws CancelledException,
+	public Program importProgram(File file) throws CancelledException,
 			DuplicateNameException, InvalidNameException, VersionException, IOException {
 		MessageLog messageLog = new MessageLog();
 		LoadResults<Program> loadResults = AutoImporter.importByUsingBestGuess(file, project,
-			domainFolder.getPathname(), this, messageLog, MONITOR);
+			null, this, messageLog, MONITOR);
 		Program program = loadResults.getPrimaryDomainObject();
 		loadResults.releaseNonPrimary(this);
 		initializeProgram(program, false);

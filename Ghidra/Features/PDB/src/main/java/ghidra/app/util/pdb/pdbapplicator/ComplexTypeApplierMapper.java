@@ -20,6 +20,7 @@ import java.util.*;
 import ghidra.app.util.SymbolPath;
 import ghidra.app.util.bin.format.pdb2.pdbreader.RecordNumber;
 import ghidra.app.util.bin.format.pdb2.pdbreader.TypeProgramInterface;
+import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
@@ -50,6 +51,33 @@ public class ComplexTypeApplierMapper {
 
 	//==============================================================================================
 	//==============================================================================================
+	void mapAppliers(ComplexTypeMapper typeMapper, TaskMonitor monitor) throws CancelledException {
+		Objects.requireNonNull(typeMapper, "typeMapper cannot be null");
+		TypeProgramInterface typeProgramInterface = applicator.getPdb().getTypeProgramInterface();
+		if (typeProgramInterface == null) {
+			return;
+		}
+		for (Map.Entry<Integer, Integer> entry : typeMapper.getMap().entrySet()) {
+			monitor.checkCancelled();
+			int fwdNum = entry.getKey();
+			int defNum = entry.getValue();
+			MsTypeApplier fwd = applicator.getTypeApplier(RecordNumber.typeRecordNumber(fwdNum));
+			MsTypeApplier def = applicator.getTypeApplier(RecordNumber.typeRecordNumber(defNum));
+			if (!(fwd instanceof AbstractComplexTypeApplier fwdApplier)) {
+				Msg.error(this, "Applier not complex type: " + fwd.toString());
+				continue;
+			}
+			if (!(def instanceof AbstractComplexTypeApplier defApplier)) {
+				Msg.error(this, "Applier not complex type: " + def.toString());
+				continue;
+			}
+			fwdApplier.setDefinitionApplier(defApplier);
+			defApplier.setForwardReferenceApplier(fwdApplier);
+		}
+	}
+
+	//==============================================================================================
+	//==============================================================================================
 	void mapAppliers(TaskMonitor monitor) throws CancelledException {
 		TypeProgramInterface typeProgramInterface = applicator.getPdb().getTypeProgramInterface();
 		if (typeProgramInterface == null) {
@@ -60,7 +88,7 @@ public class ComplexTypeApplierMapper {
 		monitor.initialize(indexLimit - indexNumber);
 		monitor.setMessage("PDB: Mapping Composites...");
 		while (indexNumber < indexLimit) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			//PdbResearch.checkBreak(indexNumber);
 			MsTypeApplier applier =
 				applicator.getTypeApplier(RecordNumber.typeRecordNumber(indexNumber++));
@@ -112,15 +140,23 @@ public class ComplexTypeApplierMapper {
 			}
 		}
 		else {
+//			int fwd;
+//			int def;
 			if (complexApplier.isForwardReference()) {
 				AbstractComplexTypeApplier definitionApplier = appliers.removeFirst();
 				definitionApplier.setForwardReferenceApplier(complexApplier);
 				complexApplier.setDefinitionApplier(definitionApplier);
+//				fwd = complexApplier.getIndex();
+//				def = definitionApplier.getIndex();
+//				System.out.println(String.format("%d %s %d -> %d", (complexApplier instanceof EnumTypeApplier) ? 1 : 0, symbolPath.toString(), fwd, def ) );
 			}
 			else {
 				AbstractComplexTypeApplier forwardReferenceApplier = appliers.removeFirst();
 				forwardReferenceApplier.setDefinitionApplier(complexApplier);
 				complexApplier.setForwardReferenceApplier(forwardReferenceApplier);
+//				fwd = forwardReferenceApplier.getIndex();
+//				def = complexApplier.getIndex();
+//				System.out.println(String.format("%d %s %d <- %d", (complexApplier instanceof EnumTypeApplier) ? 1 : 0, symbolPath.toString(), fwd, def ) );
 			}
 			if (appliers.isEmpty()) {
 				// Do not need to keep all of these around.

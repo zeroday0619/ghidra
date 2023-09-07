@@ -23,9 +23,6 @@ import java.util.Map.Entry;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.function.Predicate;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.RemovalNotification;
-
 import db.DBHandle;
 import ghidra.program.model.address.*;
 import ghidra.program.model.mem.MemBuffer;
@@ -47,6 +44,7 @@ import ghidra.util.*;
 import ghidra.util.AddressIteratorAdapter;
 import ghidra.util.database.*;
 import ghidra.util.database.spatial.rect.Rectangle2DDirection;
+import ghidra.util.datastruct.FixedSizeHashMap;
 import ghidra.util.exception.DuplicateNameException;
 import ghidra.util.exception.VersionException;
 import ghidra.util.task.TaskMonitor;
@@ -74,24 +72,16 @@ public class DBTraceMemorySpace
 	protected final DBTraceAddressSnapRangePropertyMapSpace<DBTraceMemoryRegion, DBTraceMemoryRegion> regionMapSpace;
 	protected final DBCachedObjectIndex<String, DBTraceMemoryRegion> regionsByPath;
 	protected final Collection<TraceMemoryRegion> regionView;
-	protected final Map<DBTraceMemoryRegion, DBTraceMemoryRegion> regionCache = CacheBuilder
-			.newBuilder()
-			.removalListener(this::regionCacheEntryRemoved)
-			.maximumSize(10)
-			.build()
-			.asMap();
+	protected final Map<DBTraceMemoryRegion, DBTraceMemoryRegion> regionCache =
+		new FixedSizeHashMap<>(10);
 
 	protected final DBTraceAddressSnapRangePropertyMapSpace<TraceMemoryState, DBTraceMemoryStateEntry> stateMapSpace;
 
 	protected final DBCachedObjectStore<DBTraceMemoryBufferEntry> bufferStore;
 	protected final DBCachedObjectStore<DBTraceMemoryBlockEntry> blockStore;
 	protected final DBCachedObjectIndex<OffsetSnap, DBTraceMemoryBlockEntry> blocksByOffset;
-	protected final Map<OffsetSnap, DBTraceMemoryBlockEntry> blockCacheMostRecent = CacheBuilder
-			.newBuilder()
-			.removalListener(this::blockCacheEntryRemoved)
-			.maximumSize(10)
-			.build()
-			.asMap();
+	protected final Map<OffsetSnap, DBTraceMemoryBlockEntry> blockCacheMostRecent =
+		new FixedSizeHashMap<>(10);
 
 	protected final DBTraceTimeViewport viewport;
 
@@ -144,16 +134,6 @@ public class DBTraceMemorySpace
 	@Override
 	public ReadWriteLock getLock() {
 		return lock;
-	}
-
-	private void regionCacheEntryRemoved(
-			RemovalNotification<DBTraceMemoryRegion, DBTraceMemoryRegion> rn) {
-		// Nothing
-	}
-
-	private void blockCacheEntryRemoved(
-			RemovalNotification<OffsetSnap, DBTraceMemoryBlockEntry> rn) {
-		// Nothing
 	}
 
 	@Override
@@ -454,7 +434,7 @@ public class DBTraceMemorySpace
 	}
 
 	@Override
-	public AddressSetView getAddressesWithState(long snap, AddressSetView set,
+	public AddressSetView getAddressesWithState(Lifespan span, AddressSetView set,
 			Predicate<TraceMemoryState> predicate) {
 		try (LockHold hold = LockHold.lock(lock.readLock())) {
 			AddressSet remains = new AddressSet(set);
@@ -462,7 +442,7 @@ public class DBTraceMemorySpace
 			while (!remains.isEmpty()) {
 				AddressRange range = remains.getFirstRange();
 				remains.delete(range);
-				for (Entry<TraceAddressSnapRange, TraceMemoryState> entry : doGetStates(snap,
+				for (Entry<TraceAddressSnapRange, TraceMemoryState> entry : doGetStates(span,
 					range)) {
 					AddressRange foundRange = entry.getKey().getRange();
 					remains.delete(foundRange);
@@ -475,21 +455,20 @@ public class DBTraceMemorySpace
 		}
 	}
 
-	protected Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> doGetStates(long snap,
+	protected Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> doGetStates(Lifespan span,
 			AddressRange range) {
 		// TODO: A better way to handle memory-mapped registers?
 		if (getAddressSpace().isRegisterSpace() && !range.getAddressSpace().isRegisterSpace()) {
-			return trace.getMemoryManager().getStates(snap, range);
+			return trace.getMemoryManager().doGetStates(span, range);
 		}
-		return stateMapSpace.reduce(TraceAddressSnapRangeQuery.intersecting(range.getMinAddress(),
-			range.getMaxAddress(), snap, snap)).entries();
+		return stateMapSpace.reduce(TraceAddressSnapRangeQuery.intersecting(range, span)).entries();
 	}
 
 	@Override
 	public Collection<Entry<TraceAddressSnapRange, TraceMemoryState>> getStates(long snap,
 			AddressRange range) {
 		assertInSpace(range);
-		return doGetStates(snap, range);
+		return doGetStates(Lifespan.at(snap), range);
 	}
 
 	@Override
@@ -666,7 +645,7 @@ public class DBTraceMemorySpace
 	@Override
 	public int putBytes(long snap, Address start, ByteBuffer buf) {
 		assertInSpace(start);
-		int arrOff = buf.arrayOffset() + buf.position();
+		int pos = buf.position();
 		try (LockHold hold = LockHold.lock(lock.writeLock())) {
 
 			ByteBuffer oldBytes = ByteBuffer.allocate(buf.remaining());
@@ -680,7 +659,8 @@ public class DBTraceMemorySpace
 				doSetState(snap, start, end, TraceMemoryState.KNOWN);
 
 				// Read back the written bytes and fire event
-				byte[] bytes = Arrays.copyOfRange(buf.array(), arrOff, arrOff + result);
+				byte[] bytes = new byte[result];
+				buf.get(pos, bytes);
 				ImmutableTraceAddressSnapRange tasr = new ImmutableTraceAddressSnapRange(start,
 					start.add(result - 1), snap, lastSnap.snap);
 				trace.setChanged(new TraceChangeRecord<>(TraceMemoryBytesChangeType.CHANGED,

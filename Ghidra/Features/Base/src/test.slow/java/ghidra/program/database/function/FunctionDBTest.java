@@ -35,6 +35,7 @@ import ghidra.program.model.lang.CompilerSpec;
 import ghidra.program.model.lang.Register;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.listing.Function.FunctionUpdateType;
+import ghidra.program.model.mem.MemoryBlock;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.ChangeManager;
 import ghidra.program.util.ProgramChangeRecord;
@@ -131,11 +132,36 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 	private Function createFunction(String name, Address entryPt, AddressSetView body)
 			throws DuplicateNameException, InvalidInputException, OverlappingFunctionException {
 
-		functionManager.createFunction(name, entryPt, body, SourceType.USER_DEFINED);
-		Function f = functionManager.getFunctionAt(entryPt);
+		Function f = functionManager.createFunction(name, entryPt, body, SourceType.USER_DEFINED);
+		assertNotNull(f);
+		assertEquals(f, functionManager.getFunctionAt(entryPt));
 		assertEquals(entryPt, f.getEntryPoint());
 		assertEquals(body, f.getBody());
 		return f;
+	}
+
+	@Test
+	public void testCreateFunctionBodyRestrictions() throws Exception
+	{
+		MemoryBlock ovBlock =
+			program.getMemory().createUninitializedBlock("OV", addr(200), 100, true);
+		try {
+			AddressSet set = new AddressSet(addr(100), addr(200));
+			set.add(ovBlock.getAddressRange());
+			createFunction("foo", addr(100), set);
+			fail("Expected body must contain single address space only");
+		}
+		catch (IllegalArgumentException e) {
+			assertTrue(e.getMessage().contains("body must contain single address space only"));
+		}
+
+		try {
+			createFunction("foo", addr(100), new AddressSet(addr(150), addr(200)));
+			fail("Expected body must contain entry point exception");
+		}
+		catch (IllegalArgumentException e) {
+			assertTrue(e.getMessage().contains("body must contain the entrypoint"));
+		}
 	}
 
 	@Test
@@ -159,7 +185,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertEquals(SourceType.USER_DEFINED, f.getSymbol().getSource());
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		Symbol s = (Symbol) lastCaptureRecord.getObject();
@@ -240,7 +266,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertEquals(asv, f.getBody());
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		Function localF = (Function) lastCaptureRecord.getObject();
@@ -271,7 +297,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertEquals(asv, f.getBody());
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		Function localF = (Function) lastCaptureRecord.getObject();
@@ -397,7 +423,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 	}
 
 	@Test
-	public void testSetBodyInvalidEntryPoint() throws Exception {
+	public void testSetInvalidBody() throws Exception {
 
 		AddressSet asv = new AddressSet();
 		asv.addRange(addr(100), addr(350));
@@ -407,17 +433,27 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		Function f = createFunction("foo", addr(100), asv);
 		functionManager.invalidateCache(false);
 		f = functionManager.getFunctionAt(addr(100));
-		asv = new AddressSet();
-		asv.addRange(addr(110), addr(120));
-		asv.addRange(addr(300), addr(400));
-		asv.addRange(addr(10), addr(20));
 
 		try {
+			asv = new AddressSet();
+			asv.addRange(addr(110), addr(120));
 			f.setBody(asv);
-			Assert.fail(
-				"Should have gotten illegal argument exception: original entry point not in new body");
+			fail("Expected exception: body must contain entry point");
 		}
 		catch (IllegalArgumentException e) {
+			assertTrue(e.getMessage().contains("body must contain the entry point"));
+		}
+
+		MemoryBlock ovBlock =
+			program.getMemory().createUninitializedBlock("OV", addr(200), 100, true);
+		try {
+			asv = new AddressSet(addr(100), addr(200));
+			asv.add(ovBlock.getAddressRange());
+			f.setBody(asv);
+			fail("Expected exception: body must contain single address space only");
+		}
+		catch (IllegalArgumentException e) {
+			assertTrue(e.getMessage().contains("body must contain single address space only"));
 		}
 
 	}
@@ -574,7 +610,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertTrue(dt.isEquivalent(f.getReturnType()));
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 	}
 
@@ -1248,7 +1284,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		}
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		Parameter[] params = f.getParameters();
@@ -1286,7 +1322,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertEquals(20, f.getStackPurgeSize());
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 	}
 
@@ -1308,7 +1344,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertTrue(f.addParameter(stackVar, SourceType.USER_DEFINED) instanceof ParameterDB);// causes both symbol created and function change events
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		stackVar = new LocalVariableImpl("TestStack1", dt[1], 8, program);
@@ -1319,7 +1355,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		assertTrue(f.addParameter(stackVar, SourceType.USER_DEFINED) instanceof ParameterDB);// causes both symbol created and function change events
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		stackVar = new LocalVariableImpl("TestStack2", dt[2], 12, program);
@@ -1792,7 +1828,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setInline(true);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1804,7 +1840,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setInline(false);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1825,7 +1861,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setNoReturn(true);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1837,7 +1873,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setNoReturn(false);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1857,7 +1893,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setCallFixup("TEST");
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1869,7 +1905,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f.setCallFixup(null);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1902,7 +1938,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 			SourceType.USER_DEFINED);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(1, captureRecords.size());
 
@@ -1912,7 +1948,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 			SourceType.USER_DEFINED);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNull(lastCaptureRecord);// no event expected for function "foo2" (not yet a thunk)
 
 		functionManager.invalidateCache(false);
@@ -1926,7 +1962,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f2.setThunkedFunction(f1);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 
 		functionManager.invalidateCache(false);
@@ -1949,7 +1985,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f1.setName("fum", SourceType.USER_DEFINED);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(2, captureRecords.size());
 
@@ -1972,7 +2008,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 			SourceType.USER_DEFINED);// add to "thunked" func
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(2, captureRecords.size());
 
@@ -1994,7 +2030,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 			SourceType.USER_DEFINED);// add to thunk
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(2, captureRecords.size());
 
@@ -2015,7 +2051,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f2.setName("test", SourceType.USER_DEFINED);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(1, captureRecords.size());
 
@@ -2037,7 +2073,7 @@ public class FunctionDBTest extends AbstractGhidraHeadedIntegrationTest
 		f2.setName(null, SourceType.DEFAULT);
 
 		program.flushEvents();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertNotNull(lastCaptureRecord);
 		assertEquals(2, captureRecords.size());
 

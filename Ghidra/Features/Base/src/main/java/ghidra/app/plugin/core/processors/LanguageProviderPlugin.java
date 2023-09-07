@@ -17,6 +17,7 @@ package ghidra.app.plugin.core.processors;
 
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
+import java.util.List;
 
 import javax.swing.SwingUtilities;
 
@@ -220,7 +221,8 @@ public final class LanguageProviderPlugin extends Plugin implements ApplicationL
 				Program program = (Program) dobj;
 
 				monitor.setMessage("Identify Language...");
-				SetLanguageDialog dialog = new SetLanguageDialog(tool, program);
+				SetLanguageDialog dialog = new SetLanguageDialog(tool, program,
+					"Set Language: " + program.getDomainFile().getName());
 				LanguageID langDescID = dialog.getLanguageDescriptionID();
 				CompilerSpecID compilerSpecDescID = dialog.getCompilerSpecDescriptionID();
 				if ((langDescID == null) || (compilerSpecDescID == null)) {
@@ -316,7 +318,7 @@ public final class LanguageProviderPlugin extends Plugin implements ApplicationL
 			try {
 				SwingUtilities.invokeAndWait(() -> {
 					ToolServices toolServices = tool.getToolServices();
-					if (toolServices.launchDefaultTool(domainFile) == null) {
+					if (toolServices.launchDefaultTool(List.of(domainFile)) == null) {
 						Msg.showError(this, tool.getToolFrame(), "Failed to Open Program",
 							"A suitable default tool could not found!");
 					}

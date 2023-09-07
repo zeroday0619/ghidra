@@ -17,24 +17,22 @@ package ghidra.app.util.pdb.pdbapplicator;
 
 import java.util.regex.Matcher;
 
-import ghidra.app.cmd.disassemble.DisassembleCommand;
-import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.util.NamespaceUtils;
 import ghidra.app.util.bin.format.pdb2.pdbreader.PdbException;
 import ghidra.app.util.bin.format.pdb2.pdbreader.symbol.AbstractLabelMsSymbol;
 import ghidra.app.util.bin.format.pdb2.pdbreader.symbol.AbstractMsSymbol;
 import ghidra.app.util.pdb.pdbapplicator.SymbolGroup.AbstractMsSymbolIterator;
 import ghidra.program.model.address.Address;
-import ghidra.program.model.listing.*;
+import ghidra.program.model.listing.Function;
 import ghidra.program.model.symbol.SourceType;
-import ghidra.util.Msg;
-import ghidra.util.exception.*;
+import ghidra.util.exception.AssertException;
+import ghidra.util.exception.CancelledException;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * Applier for {@link AbstractLabelMsSymbol} symbols.
  */
-public class LabelSymbolApplier extends MsSymbolApplier {
+public class LabelSymbolApplier extends MsSymbolApplier implements DeferrableFunctionSymbolApplier {
 
 	private AbstractLabelMsSymbol symbol;
 	private Function function = null;
@@ -70,11 +68,20 @@ public class LabelSymbolApplier extends MsSymbolApplier {
 			return;
 		}
 
-		// The applyFunction call hierarchy here, was copied and modified from FunctionSymbolApplier.
-		// We need to re-look at this and create common as possibly in applicator or utility or
-		// else where. Note that our applyFunction here does not apply a function definition, as
-		// we have no data type associated with the label.
-		applyFunction(symbolAddress, label, applicator.getCancelOnlyWrappingMonitor());
+		// Create function or label, depending on what is indicated.  Note that the indicator is
+		//  sufficient, but not necessary for a function; thus, we might not create a function
+		//  where one exists.  However, other analyses, such as EntryPointAnalysis might pick
+		//  this up.
+		if (hasFunctionIndication()) {
+			// The applyFunction call hierarchy here, was copied and modified from
+			// FunctionSymbolApplier.  We need to re-look at this and create common as possibly
+			// in applicator or utility or else where. Note that our applyFunction here does not
+			// apply a function definition, as we have no data type associated with the label.
+			applyFunction(symbolAddress, label, applicator.getCancelOnlyWrappingMonitor());
+		}
+		else {
+			applicator.createSymbol(symbolAddress, label, true);
+		}
 	}
 
 	@Override
@@ -119,6 +126,15 @@ public class LabelSymbolApplier extends MsSymbolApplier {
 	}
 
 	/**
+	 * Returns true if seems like a function.  Not necessary, but (seems) sufficient, to indicate a
+	 *  function
+	 * @return true if function indicated
+	 */
+	private boolean hasFunctionIndication() {
+		return symbol.getFlags().hasFunctionIndication();
+	}
+
+	/**
 	 * Returns true if there is a specific indication that the function is non-returning.
 	 * @return true if positive indication is given
 	 */
@@ -143,10 +159,11 @@ public class LabelSymbolApplier extends MsSymbolApplier {
 
 	private boolean applyFunction(Address address, String name, TaskMonitor monitor) {
 		applicator.createSymbol(address, name, true);
-		function = createFunction(address, monitor);
+		function = applicator.getExistingOrCreateOneByteFunction(address);
 		if (function == null) {
 			return false;
 		}
+		applicator.scheduleDeferredFunctionWork(this);
 
 		if (!function.isThunk() &&
 			function.getSignatureSource().isLowerPriorityThan(SourceType.IMPORTED)) {
@@ -157,46 +174,10 @@ public class LabelSymbolApplier extends MsSymbolApplier {
 			function.setNoReturn(isNonReturning());
 			// We have seen no examples of custom calling convention flag being set.
 			if (hasCustomCallingConvention()) {
-				try {
-					function.setCallingConvention("unknown");
-				}
-				catch (InvalidInputException e) {
-					Msg.warn(this,
-						"PDB: Could not set \"unknown\" calling convention for label: " + name);
-				}
+				// For now: do nothing... the convention is unknown by default.
 			}
 		}
 		return true;
-	}
-
-	private Function createFunction(Address address, TaskMonitor monitor) {
-
-		// Check for existing function.
-		Function myFunction = applicator.getProgram().getListing().getFunctionAt(address);
-		if (myFunction != null) {
-			return myFunction;
-		}
-
-		// Disassemble
-		Instruction instr = applicator.getProgram().getListing().getInstructionAt(address);
-		if (instr == null) {
-			DisassembleCommand cmd = new DisassembleCommand(address, null, true);
-			cmd.applyTo(applicator.getProgram(), monitor);
-		}
-
-		myFunction = createFunctionCommand(address, monitor);
-
-		return myFunction;
-	}
-
-	private Function createFunctionCommand(Address address, TaskMonitor monitor) {
-		CreateFunctionCmd funCmd = new CreateFunctionCmd(address);
-		if (!funCmd.applyTo(applicator.getProgram(), monitor)) {
-			applicator.appendLogMsg("Failed to apply function at address " + address.toString() +
-				"; attempting to use possible existing function");
-			return applicator.getProgram().getListing().getFunctionAt(address);
-		}
-		return funCmd.getFunction();
 	}
 
 	/**
@@ -215,5 +196,10 @@ public class LabelSymbolApplier extends MsSymbolApplier {
 			return null;
 		}
 		return label;
+	}
+
+	@Override
+	public Address getAddress() {
+		return applicator.getAddress(symbol);
 	}
 }

@@ -75,7 +75,7 @@ public class DynamicHash {
 		0,				// CAST is skipped
 		PcodeOp.INT_ADD, PcodeOp.INT_ADD,		// PTRADD and PTRSUB hash same as INT_ADD
 		PcodeOp.SEGMENTOP, PcodeOp.CPOOLREF, PcodeOp.NEW, PcodeOp.INSERT, PcodeOp.EXTRACT,
-		PcodeOp.POPCOUNT };
+		PcodeOp.POPCOUNT, PcodeOp.LZCOUNT };
 
 	/**
 	 * An edge between a Varnode and a PcodeOp
@@ -294,6 +294,9 @@ public class DynamicHash {
 					buildOpUp(markop.get(opproc));
 				}
 				gatherUnmarkedVn();
+				for (; vnproc < markvn.size(); ++vnproc) {
+					buildVnUp(markvn.get(vnproc));
+				}
 				break;
 			case 6:
 				gatherUnmarkedOp();
@@ -301,6 +304,9 @@ public class DynamicHash {
 					buildOpDown(markop.get(opproc));
 				}
 				gatherUnmarkedVn();
+				for (; vnproc < markvn.size(); ++vnproc) {
+					buildVnDown(markvn.get(vnproc));
+				}
 				break;
 			default:
 				break;

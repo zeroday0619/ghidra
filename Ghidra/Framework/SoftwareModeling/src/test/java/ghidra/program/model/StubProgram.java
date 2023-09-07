@@ -19,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
+import db.Transaction;
 import ghidra.framework.model.*;
 import ghidra.framework.options.Options;
 import ghidra.framework.store.LockException;
@@ -47,6 +48,11 @@ public class StubProgram implements Program {
 	}
 
 	@Override
+	public Transaction openTransaction(String description) throws IllegalStateException {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
 	public int startTransaction(String description, AbortedTransactionListener listener) {
 		throw new UnsupportedOperationException();
 	}
@@ -57,7 +63,7 @@ public class StubProgram implements Program {
 	}
 
 	@Override
-	public Transaction getCurrentTransaction() {
+	public TransactionInfo getCurrentTransactionInfo() {
 		throw new UnsupportedOperationException();
 	}
 
@@ -294,6 +300,16 @@ public class StubProgram implements Program {
 
 	@Override
 	public String getRedoName() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public List<String> getAllUndoNames() {
+		throw new UnsupportedOperationException();
+	}
+
+	@Override
+	public List<String> getAllRedoNames() {
 		throw new UnsupportedOperationException();
 	}
 

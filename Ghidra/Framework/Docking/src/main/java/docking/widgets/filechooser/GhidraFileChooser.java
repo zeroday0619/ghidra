@@ -109,7 +109,8 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 	private static final Icon ICON_HOME = new GIcon("icon.filechooser.places.home");
 	private static final Icon ICON_RECENT = new GIcon("icon.filechooser.places.recent");
 
-	// base and overlay?
+	private final static Cursor WAIT_CURSOR = Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR);
+	private final static Cursor DEFAULT_CURSOR = Cursor.getPredefinedCursor(Cursor.DEFAULT_CURSOR);
 
 	/** Instruction to display only files. */
 	public static final int FILES_ONLY = 0;
@@ -187,9 +188,9 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 	private SwingUpdateManager modelUpdater = new SwingUpdateManager(this::updateDirectoryModels);
 
 	/**
-	 * The last input component to take focus (the text field or file view). 
-	 * 
-	 * <p>This may annoy users that are using the keyboard to perform navigation operations via 
+	 * The last input component to take focus (the text field or file view).
+	 *
+	 * <p>This may annoy users that are using the keyboard to perform navigation operations via
 	 * the toolbar buttons, as we will keep putting focus back into the last input item.  We
 	 * may need a way to set this field to null when the user is working in this fashion.
 	 */
@@ -216,7 +217,7 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 
 	/**
 	 * Constructs a new ghidra file chooser
-	 * 
+	 *
 	 * @param model the file chooser model
 	 * @param parent the parent component
 	 */
@@ -464,13 +465,13 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 
 			@Override
 			public void mouseEntered(MouseEvent e) {
-				waitPanel.setCursor(new Cursor(Cursor.WAIT_CURSOR));
+				waitPanel.setCursor(WAIT_CURSOR);
 				e.consume();
 			}
 
 			@Override
 			public void mouseExited(MouseEvent e) {
-				waitPanel.setCursor(new Cursor(Cursor.DEFAULT_CURSOR));
+				waitPanel.setCursor(DEFAULT_CURSOR);
 			}
 		});
 		waitPanel.addMouseMotionListener(new MouseMotionAdapter() {
@@ -681,9 +682,9 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 	}
 
 	/**
-	 * Sets the text used in the <code>OK</code> button 
-	 * 
-	 * @param buttonText the text 
+	 * Sets the text used in the <code>OK</code> button
+	 *
+	 * @param buttonText the text
 	 */
 	public void setApproveButtonText(String buttonText) {
 		setOkButtonText(buttonText);
@@ -691,7 +692,7 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 
 	/**
 	 * Sets the tooltip text used in the <code>OK</code> button
-	 * 
+	 *
 	 * @param tooltipText the tooltip text
 	 */
 	public void setApproveButtonToolTipText(String tooltipText) {
@@ -810,10 +811,10 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 		}
 
 		// we only get here if the new dir is the current dir and we are not forcing an update
-		// TODO this code causes unexpected behavior when in 'directories only' mode in that 
-		// this will cause the current directory to change.  The behavior can be seen by 
+		// TODO this code causes unexpected behavior when in 'directories only' mode in that
+		// this will cause the current directory to change.  The behavior can be seen by
 		// putting this code back in and then running the tests.   No tests are failing with this
-		// code removed.  We are leaving this code here for a couple releases in case we find 
+		// code removed.  We are leaving this code here for a couple releases in case we find
 		// a code path that requires it.
 		// setSelectedFileAndUpdateDisplay((isFilesOnly() ? null : directory));
 	}
@@ -824,6 +825,10 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 
 	String getDisplayName(File file) {
 		if (file == null) {
+			return "";
+		}
+
+		if (isDisposed()) {
 			return "";
 		}
 
@@ -838,6 +843,10 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 			return file.getAbsolutePath() + "  ";
 		}
 		return getFilename(file) + "  ";
+	}
+
+	private boolean isDisposed() {
+		return fileChooserModel == null;
 	}
 
 	private void setDirectoryList(File directory, List<File> files) {
@@ -876,10 +885,10 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 	}
 
 	/**
-	 * Returns the selected file. This can be set either by the  programmer via 
-	 * {@link #setSelectedFile(File)} or by a user action, such as either typing the 
+	 * Returns the selected file. This can be set either by the  programmer via
+	 * {@link #setSelectedFile(File)} or by a user action, such as either typing the
 	 * filename into the UI or selecting the file from a list in the UI.
-	 * 
+	 *
 	 * @return the selected file; null if cancelled or no file was selected
 	 */
 	public File getSelectedFile() {
@@ -1963,14 +1972,14 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 
 		@Override
 		public void run(TaskMonitor monitor) {
-			if (monitor.isCancelled()) {
+			if (monitor.isCancelled() || worker.isDisposed()) {
 				return;
 			}
 
 			run();
 
 			Swing.runLater(() -> {
-				if (!monitor.isCancelled()) {
+				if (!monitor.isCancelled() && !worker.isDisposed()) {
 					runSwing();
 				}
 			});
@@ -2180,7 +2189,7 @@ public class GhidraFileChooser extends ReusableDialogComponentProvider implement
 	 * size.  The list also allows us to clear and set a value in one method call.  We are
 	 * essentially using this list to hold selected files, where in certain modes, there will only
 	 * be a single file selection.
-	 * 
+	 *
 	 * <P>The methods on the class are synchronized to ensure thread visibility.
 	 */
 	private class FileList {

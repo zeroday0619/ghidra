@@ -248,6 +248,9 @@ public class DebuggerTrackLocationTrait {
 		// Change of current frame
 		// Change of tracking settings
 		DebuggerCoordinates cur = current;
+		if (cur.getView() == null) {
+			return AsyncUtils.nil();
+		}
 		TraceThread thread = cur.getThread();
 		if (thread == null || spec == null) {
 			return AsyncUtils.nil();
@@ -313,6 +316,13 @@ public class DebuggerTrackLocationTrait {
 		CONFIG_STATE_HANDLER.readConfigState(this, saveState);
 		tracker = spec.getTracker();
 		action.setCurrentActionStateByUserData(spec);
+	}
+
+	public GoToInput getDefaultGoToInput(ProgramLocation loc) {
+		if (tracker == null) {
+			return NoneLocationTrackingSpec.INSTANCE.getDefaultGoToInput(tool, current, loc);
+		}
+		return tracker.getDefaultGoToInput(tool, current, loc);
 	}
 
 	protected void locationTracked() {

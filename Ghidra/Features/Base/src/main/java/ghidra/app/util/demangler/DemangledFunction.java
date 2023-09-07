@@ -387,7 +387,7 @@ public class DemangledFunction extends DemangledObject {
 		// the function to the correct address.
 
 		if (address.isMemoryAddress()) {
-			address = PseudoDisassembler.setTargeContextForDisassembly(program, address);
+			address = PseudoDisassembler.setTargetContextForDisassembly(program, address);
 		}
 
 		if (!passesPreconditions(program, address)) {
@@ -454,7 +454,7 @@ public class DemangledFunction extends DemangledObject {
 		}
 
 		ApplyFunctionSignatureCmd cmd = new ApplyFunctionSignatureCmd(function.getEntryPoint(),
-			signature, SourceType.IMPORTED, true, false);
+			signature, SourceType.IMPORTED, true, FunctionRenameOption.RENAME_IF_DEFAULT);
 		cmd.applyTo(program);
 
 		return true;

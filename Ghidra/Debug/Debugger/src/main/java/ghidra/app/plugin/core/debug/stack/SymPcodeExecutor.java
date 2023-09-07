@@ -15,6 +15,7 @@
  */
 package ghidra.app.plugin.core.debug.stack;
 
+import java.io.IOException;
 import java.util.*;
 
 import ghidra.app.decompiler.DecompInterface;
@@ -28,8 +29,10 @@ import ghidra.program.model.address.Address;
 import ghidra.program.model.data.*;
 import ghidra.program.model.lang.*;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.MemoryAccessException;
 import ghidra.program.model.pcode.*;
 import ghidra.util.exception.InvalidInputException;
+import ghidra.util.exception.NotFoundException;
 import ghidra.util.task.TaskMonitor;
 
 /**
@@ -64,17 +67,16 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 	 * @return the executor
 	 */
 	public static SymPcodeExecutor forProgram(Program program, SymPcodeExecutorState state,
-			Reason reason, Set<StackUnwindWarning> warnings, TaskMonitor monitor) {
+			Reason reason, TaskMonitor monitor) {
 		CompilerSpec cSpec = program.getCompilerSpec();
 		SleighLanguage language = (SleighLanguage) cSpec.getLanguage();
 		SymPcodeArithmetic arithmetic = new SymPcodeArithmetic(cSpec);
-		return new SymPcodeExecutor(program, cSpec, language, arithmetic, state, reason,
-			warnings, monitor);
+		return new SymPcodeExecutor(program, cSpec, language, arithmetic, state, reason, monitor);
 	}
 
 	private final Program program;
 	private final Register sp;
-	private final Set<StackUnwindWarning> warnings;
+	final Set<StackUnwindWarning> warnings;
 	private final TaskMonitor monitor;
 
 	private final DecompInterface decomp = new DecompInterface();
@@ -84,17 +86,16 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 
 	public SymPcodeExecutor(Program program, CompilerSpec cSpec, SleighLanguage language,
 			SymPcodeArithmetic arithmetic, SymPcodeExecutorState state, Reason reason,
-			Set<StackUnwindWarning> warnings, TaskMonitor monitor) {
+			TaskMonitor monitor) {
 		super(language, arithmetic, state, reason);
 		this.program = program;
 		this.sp = cSpec.getStackPointer();
-		this.warnings = warnings;
+		this.warnings = state.warnings;
 		this.monitor = monitor;
 	}
 
 	@Override
-	public void executeCallother(PcodeOp op, PcodeFrame frame,
-			PcodeUseropLibrary<Sym> library) {
+	public void executeCallother(PcodeOp op, PcodeFrame frame, PcodeUseropLibrary<Sym> library) {
 		// Do nothing
 		// TODO: Is there a way to know if a userop affects the stack?
 	}
@@ -120,8 +121,7 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 		}
 		int extrapop = convention.getExtrapop();
 		if (extrapop == PrototypeModel.UNKNOWN_EXTRAPOP) {
-			throw new PcodeExecutionException(
-				"Cannot get stack change for function " + function);
+			throw new PcodeExecutionException("Cannot get stack change for function " + function);
 		}
 		if (function.isStackPurgeSizeValid()) {
 			return extrapop + function.getStackPurgeSize();
@@ -151,9 +151,15 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 		}
 		String fixupName = callee.getCallFixup();
 		if (fixupName != null && !"".equals(fixupName)) {
-			PcodeProgram snippet =
-				PcodeProgram.fromInject(program, fixupName, InjectPayload.CALLFIXUP_TYPE);
-			execute(snippet, library);
+			PcodeProgram snippet;
+			try {
+				snippet = PcodeProgram.fromInject(program, fixupName, InjectPayload.CALLFIXUP_TYPE);
+				execute(snippet, library);
+			}
+			catch (MemoryAccessException | UnknownInstructionException | NotFoundException
+					| IOException e) {
+				throw new PcodeExecutionException("Issue executing callee fixup: ", e);
+			}
 			return;
 		}
 		int change = computeStackChange(callee);
@@ -209,7 +215,14 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 	 */
 	protected FunctionSignature getSignatureFromTargetPointerType(PcodeOpAST op) {
 		VarnodeAST target = (VarnodeAST) op.getInput(0);
-		DataType dataType = target.getHigh().getDataType();
+		HighVariable high = target.getHigh();
+
+		if (high == null) {
+			warnings.add(new NoHighVariableFromTargetPointerTypeUnwindWarning(target));
+			return null;
+		}
+
+		DataType dataType = high.getDataType();
 		if (!(dataType instanceof Pointer ptrType)) {
 			warnings.add(new UnexpectedTargetTypeStackUnwindWarning(dataType));
 			return null;
@@ -229,7 +242,13 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 	 */
 	protected FunctionSignature getSignatureFromContextAtCallSite(PcodeOpAST op) {
 		FunctionDefinitionDataType sig = new FunctionDefinitionDataType("__indirect");
-		sig.setReturnType(op.getOutput().getHigh().getDataType());
+		Varnode output = op.getOutput();
+		if (output == null) {
+			sig.setReturnType(VoidDataType.dataType);
+		}
+		else {
+			sig.setReturnType(output.getHigh().getDataType());
+		}
 		// input 0 is the target, so drop it.
 		int numInputs = op.getNumInputs();
 		Parameter[] params = new Parameter[numInputs - 1];
@@ -237,19 +256,19 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 		for (int i = 1; i < numInputs; i++) {
 			Varnode input = op.getInput(i);
 			HighVariable highVar = input.getHigh();
+			DataType dataType = highVar.getDataType();
 			try {
 				/**
 				 * NOTE: Not specifying storage, since: 1) It's not germane to the function
 				 * signature, and 2) It may require chasing use-def chains through uniques.
 				 */
-				params[i - 1] = new ParameterImpl("param_" + i, highVar.getDataType(),
+				params[i - 1] = new ParameterImpl("param_" + i, dataType,
 					/*new VariableStorage(program, input),*/ program);
 			}
 			catch (InvalidInputException e) {
 				throw new AssertionError(e);
 			}
-			arguments[i - 1] = new ParameterDefinitionImpl("param_" + i,
-				input.getHigh().getDataType(), "generated");
+			arguments[i - 1] = new ParameterDefinitionImpl("param_" + i, dataType, "generated");
 		}
 		sig.setArguments(arguments);
 		sig.setComment("generated");
@@ -257,9 +276,9 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 		// TODO: Does the decompiler communicate the inferred calling convention?
 		try {
 			PrototypeModel convention = program.getCompilerSpec().findBestCallingConvention(params);
-			sig.setGenericCallingConvention(convention.getGenericCallingConvention());
+			sig.setCallingConvention(convention.getName());
 		}
-		catch (SleighException e) {
+		catch (SleighException | InvalidInputException e) {
 			// Whatever, just leave sig at "unknown"
 		}
 		return sig;
@@ -345,7 +364,7 @@ class SymPcodeExecutor extends PcodeExecutor<Sym> {
 			throw new PcodeExecutionException("Cannot get stack change for indirect call: " + op);
 		}
 		PrototypeModel convention =
-			program.getCompilerSpec().matchConvention(sig.getGenericCallingConvention());
+			program.getCompilerSpec().matchConvention(sig.getCallingConventionName());
 		if (convention == null) {
 			warnings.add(new UnspecifiedConventionStackUnwindWarning(null));
 			convention = program.getCompilerSpec().getDefaultCallingConvention();

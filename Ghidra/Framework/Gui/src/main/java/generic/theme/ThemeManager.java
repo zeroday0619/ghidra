@@ -322,7 +322,7 @@ public abstract class ThemeManager {
 		FontValue font = currentValues.getFont(id);
 
 		if (font == null) {
-			error("No color value registered for: '" + id + "'");
+			error("No font value registered for: '" + id + "'");
 			return DEFAULT_FONT;
 		}
 		return font.get(currentValues);
@@ -441,20 +441,6 @@ public abstract class ThemeManager {
 		GThemeValueMap map = new GThemeValueMap(applicationDefaults.getLightValues());
 		map.load(applicationDefaults.getLookAndFeelValues(getLookAndFeelType()));
 		return map;
-	}
-
-	/**
-	 * Returns application defaults values (does not include java default values)
-	 * @return application defaults values (does not include java default values)
-	 */
-	public GThemeValueMap getApplicationOverrides() {
-		GThemeValueMap currentDefaults = new GThemeValueMap();
-		currentDefaults.load(applicationDefaults.getLightValues());
-		if (useDarkDefaults) {
-			currentDefaults.load(applicationDefaults.getDarkValues());
-		}
-		currentDefaults.load(applicationDefaults.getLookAndFeelValues(getLookAndFeelType()));
-		return currentDefaults;
 	}
 
 	/**
@@ -584,7 +570,7 @@ public abstract class ThemeManager {
 	}
 
 	protected void error(String message) {
-		Throwable t = ReflectionUtilities.createThrowableWithStackOlderThan();
+		Throwable t = ReflectionUtilities.createThrowableWithStackOlderThan(ThemeManager.class);
 		StackTraceElement[] trace = t.getStackTrace();
 		StackTraceElement[] filtered = ReflectionUtilities.filterStackTrace(trace, "java.",
 			"theme.Gui", "theme.ThemeManager", "theme.GColor");

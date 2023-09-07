@@ -13,28 +13,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-#ifndef __CPUI_MERGE__
-#define __CPUI_MERGE__
+#ifndef __MERGE_HH__
+#define __MERGE_HH__
 
 /// \file merge.hh
 /// \brief Utilities for merging low-level Varnodes into high-level variables
 
 #include "op.hh"
 
-/// \brief A record for caching a Cover intersection test between two HighVariable objects
-///
-/// This is just a pair of HighVariable objects that can be used as a map key. The main
-/// Merge class uses it to cache intersection test results between the two variables in
-/// a map.
-class HighEdge {
-  friend class Merge;
-  HighVariable *a;		///< First HighVariable of the pair
-  HighVariable *b;		///< Second HighVariable of the pair
-public:
-  /// \brief Comparator
-  bool operator<(const HighEdge &op2) const { if (a==op2.a) return (b<op2.b); return (a<op2.a); }
-  HighEdge(HighVariable *c,HighVariable *d) { a=c; b=d; } ///< Constructor
-};
+namespace ghidra {
 
 /// \brief Helper class associating a Varnode with the block where it is defined
 ///
@@ -53,6 +40,21 @@ public:
 };
 
 class Funcdata;
+
+/// \brief The set of CALL and STORE ops that might indirectly affect stack variables
+///
+/// Intersect tests between local address tied and non-address tied Varnodes need to check for
+/// possible uses of aliases to the address tied Varnode.  This object is populated with the set of
+/// PcodeOps through which any stack Varnode might be modified through an alias.  Given an intersection
+/// of the Cover of an address tied Varnode and a PcodeOp in this set, affectsTest() can do
+/// secondary testing of whether the Varnode is actually modified by the PcodeOp.
+class StackAffectingOps : public PcodeOpSet {
+  Funcdata &data;
+public:
+  StackAffectingOps(Funcdata &fd) : data(fd) {}
+  virtual void populate(void);
+  virtual bool affectsTest(PcodeOp *op,Varnode *vn) const;
+};
 
 /// \brief Class for merging low-level Varnodes into high-level HighVariables
 ///
@@ -79,14 +81,10 @@ class Funcdata;
 ///   - Merging Varnodes that hold the same data-type
 class Merge {
   Funcdata &data;		///< The function containing the Varnodes to be merged
-  map<HighEdge,bool> highedgemap; ///< A cache of intersection tests, sorted by HighVariable pair
+  StackAffectingOps stackAffectingOps;		///< Set of CALL and STORE ops indirectly affecting stack variables
+  HighIntersectTest testCache;	///< Cached intersection tests
   vector<PcodeOp *> copyTrims;	///< COPY ops inserted to facilitate merges
   vector<PcodeOp *> protoPartial;	///< Roots of unmapped CONCAT trees
-  bool updateHigh(HighVariable *a); ///< Make sure given HighVariable's Cover is up-to-date
-  void purgeHigh(HighVariable *high); ///< Remove cached intersection tests for a given HighVariable
-  static void gatherBlockVarnodes(HighVariable *a,int4 blk,const Cover &cover,vector<Varnode *> &res);
-  static bool testBlockIntersection(HighVariable *a,int4 blk,const Cover &cover,int4 relOff,const vector<Varnode *> &blist);
-  bool blockIntersection(HighVariable *a,HighVariable *b,int4 blk);
   static bool mergeTestRequired(HighVariable *high_out,HighVariable *high_in);
   static bool mergeTestAdjacent(HighVariable *high_out,HighVariable *high_in);
   static bool mergeTestSpeculative(HighVariable *high_out,HighVariable *high_in);
@@ -97,13 +95,10 @@ class Merge {
   static bool compareCopyByInVarnode(PcodeOp *op1,PcodeOp *op2);
   static bool shadowedVarnode(const Varnode *vn);
   static void findAllIntoCopies(HighVariable *high,vector<PcodeOp *> &copyIns,bool filterTemps);
-  void collectCovering(vector<Varnode *> &vlist,HighVariable *high,PcodeOp *op);
-  bool collectCorrectable(const vector<Varnode *> &vlist,list<PcodeOp *> &oplist,vector<int4> &slotlist,
-			   PcodeOp *op);
-  void moveIntersectTests(HighVariable *high1,HighVariable *high2);
+  void collectInputs(HighVariable *high,vector<PcodeOpNode> &oplist,PcodeOp *op);
   PcodeOp *allocateCopyTrim(Varnode *inVn,const Address &addr,PcodeOp *trimOp);
   void snipReads(Varnode *vn,list<PcodeOp *> &markedop);
-  void snipIndirect(PcodeOp *indop);
+  bool snipOutputInterference(PcodeOp *indop);
   void eliminateIntersect(Varnode *vn,const vector<BlockVarnode> &blocksort);
   void unifyAddress(VarnodeLocSet::const_iterator startiter,VarnodeLocSet::const_iterator enditer);
   void trimOpOutput(PcodeOp *op);
@@ -120,9 +115,8 @@ class Merge {
   void processHighRedundantCopy(HighVariable *high);
   void groupPartialRoot(Varnode *vn);
 public:
-  Merge(Funcdata &fd) : data(fd) {} ///< Construct given a specific function
+  Merge(Funcdata &fd) : data(fd), stackAffectingOps(fd), testCache(stackAffectingOps) {} ///< Construct given a specific function
   void clear(void);
-  bool intersection(HighVariable *a,HighVariable *b);
   bool inflateTest(Varnode *a,HighVariable *high);
   void inflate(Varnode *a,HighVariable *high);
   bool mergeTest(HighVariable *high,vector<HighVariable *> &tmplist);
@@ -178,4 +172,5 @@ inline bool Merge::compareHighByBlock(const HighVariable *a,const HighVariable *
   return (result < 0);
 }
 
+} // End namespace ghidra
 #endif

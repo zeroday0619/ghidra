@@ -34,8 +34,7 @@ import javax.swing.tree.TreePath;
 import org.apache.commons.collections4.map.LinkedMap;
 import org.apache.commons.lang3.StringUtils;
 
-import docking.ActionContext;
-import docking.WindowPosition;
+import docking.*;
 import docking.action.*;
 import docking.action.builder.ActionBuilder;
 import docking.action.builder.ToggleActionBuilder;
@@ -56,11 +55,13 @@ import ghidra.app.services.*;
 import ghidra.app.services.DebuggerTraceManagerService.ActivationCause;
 import ghidra.async.*;
 import ghidra.dbg.*;
+import ghidra.dbg.DebuggerObjectModel.RefreshBehavior;
 import ghidra.dbg.error.DebuggerMemoryAccessException;
 import ghidra.dbg.target.*;
 import ghidra.dbg.target.TargetConsole.Channel;
 import ghidra.dbg.target.TargetExecutionStateful.TargetExecutionState;
 import ghidra.dbg.target.TargetMethod.ParameterDescription;
+import ghidra.dbg.target.TargetMethod.TargetParameterMap;
 import ghidra.dbg.target.TargetSteppable.TargetStepKind;
 import ghidra.dbg.util.DebuggerCallbackReorderer;
 import ghidra.dbg.util.PathUtils;
@@ -132,7 +133,9 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	@SuppressWarnings("unused")
 	private final AutoService.Wiring autoServiceWiring;
 
-	@AutoOptionDefined(name = "Default Extended Step", description = "The default string for the extended step command")
+	@AutoOptionDefined(
+		name = "Default Extended Step",
+		description = "The default string for the extended step command")
 	String extendedStep = "";
 
 	@SuppressWarnings("unused")
@@ -490,7 +493,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	public void addTable(ObjectContainer container) {
 		AtomicReference<ObjectContainer> update = new AtomicReference<>();
 		AsyncUtils.sequence(TypeSpec.cls(ObjectContainer.class)).then(seq -> {
-			container.getOffspring().handle(seq::next);
+			container.getOffspring(RefreshBehavior.REFRESH_WHEN_ABSENT).handle(seq::next);
 		}, update).then(seq -> {
 			try {
 				ObjectContainer oc = update.get();
@@ -546,7 +549,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		for (Object obj : map.values()) {
 			if (obj instanceof TargetObject) {
 				TargetObject ref = (TargetObject) obj;
-				ref.fetchAttributes(true).thenAccept(attrs -> {
+				ref.fetchAttributes(RefreshBehavior.REFRESH_ALWAYS).thenAccept(attrs -> {
 					table.setColumns();
 					// TODO: What with attrs?
 				}).exceptionally(ex -> {
@@ -703,7 +706,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		plugin.fireObjectUpdated(object);
 	}
 
-	class ObjectActionContext extends ActionContext {
+	class ObjectActionContext extends DefaultActionContext {
 
 		private DebuggerObjectsProvider provider;
 
@@ -1241,9 +1244,14 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	public void performRefresh(ActionContext context) {
 		TargetObject current = getObjectFromContext(context);
 		if (current != null) {
+			current.resync(RefreshBehavior.REFRESH_ALWAYS, RefreshBehavior.REFRESH_ALWAYS);
 			refresh(current.getName());
 		}
 		else {
+			TargetObject modelRoot = getModel().getModelRoot();
+			if (modelRoot != null) {
+				modelRoot.resync(RefreshBehavior.REFRESH_ALWAYS, RefreshBehavior.REFRESH_ALWAYS);
+			}
 			refresh();
 		}
 	}
@@ -1411,7 +1419,15 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			list.toArray(new String[] {}), lastMethod, OptionDialog.QUESTION_MESSAGE);
 		if (choice != null) {
 			TargetMethod method = (TargetMethod) attributes.get(choice);
-			Map<String, ?> args = methodDialog.promptArguments(method.getParameters());
+			TargetParameterMap parameters = method.getParameters();
+			if (parameters.isEmpty()) {
+				method.invoke(new HashMap<String, Object>());
+				if (!choice.equals("unload")) {
+					lastMethod = choice;
+				}
+				return;
+			}
+			Map<String, ?> args = methodDialog.promptArguments(parameters);
 			if (args != null) {
 				String script = (String) args.get("Script");
 				if (script != null && !script.isEmpty()) {
@@ -1668,7 +1684,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		TargetObject result = null;
 		try {
 			result = DebugModelConventions.findSuitable(TargetExecutionStateful.class, object)
-					.get(100, TimeUnit.MILLISECONDS);
+				.get(100, TimeUnit.MILLISECONDS);
 		}
 		catch (Exception e) {
 			// IGNORE

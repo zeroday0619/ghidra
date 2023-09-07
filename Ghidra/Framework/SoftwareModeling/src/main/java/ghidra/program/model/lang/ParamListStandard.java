@@ -80,11 +80,7 @@ public class ParamListStandard implements ParamList {
 		if (tp == null) {
 			tp = DataType.DEFAULT;
 		}
-		DataType baseType = tp;
-		if (baseType instanceof TypeDef) {
-			baseType = ((TypeDef) baseType).getBaseDataType();
-		}
-		if (baseType instanceof VoidDataType) {
+		if (VoidDataType.isVoidDataType(tp)) {
 			return VariableStorage.VOID_STORAGE;
 		}
 		int sz = tp.getLength();
@@ -118,8 +114,13 @@ public class ParamListStandard implements ParamList {
 			VariableStorage store;
 			try {
 				if (res.space.getType() == AddressSpace.TYPE_JOIN) {
-					Varnode[] pieces = element.getJoinRecord();
-					store = new DynamicVariableStorage(program, false, pieces);
+					Varnode[] pieces = element.getJoinPieces(sz);
+					if (pieces != null) {
+						store = new DynamicVariableStorage(program, false, pieces);
+					}
+					else {
+						store = DynamicVariableStorage.getUnassignedDynamicStorage(false);
+					}
 				}
 				else {
 					Address addr = res.space.getAddress(res.offset);

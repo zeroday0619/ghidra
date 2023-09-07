@@ -16,6 +16,8 @@
 #include "funcdata.hh"
 #include "flow.hh"
 
+namespace ghidra {
+
 // Funcdata members pertaining directly to blocks
 
 /// A description of each block in the current structure hierarchy is
@@ -623,13 +625,11 @@ bool Funcdata::earlyJumpTableFail(PcodeOp *op)
   return false;
 }
 
-/// \brief Recover destinations for a BRANCHIND by analyzing nearby data and control-flow
+/// \brief Recover control-flow destinations for a BRANCHIND
 ///
-/// This is the high-level entry point for jump-table/switch recovery. In short, a
-/// copy of the current state of data-flow is made, simplification transformations are applied
-/// to the copy, and the resulting data-flow tree is examined to enumerate possible values
-/// of the input Varnode to the given BRANCHIND PcodeOp.  This information is stored in a
-/// JumpTable object.
+/// If an existing and complete JumpTable exists for the BRANCHIND, it is returned immediately.
+/// Otherwise an attempt is made to analyze the current partial function and recover the set of destination
+/// addresses, which if successful will be returned as a new JumpTable object.
 /// \param partial is the Funcdata copy to perform analysis on if necessary
 /// \param op is the given BRANCHIND PcodeOp
 /// \param flow is current flow information for \b this function
@@ -1087,3 +1087,5 @@ void Funcdata::spliceBlockBasic(BlockBasic *bl)
   bblocks.spliceBlock(bl);
   structureReset();
 }
+
+} // End namespace ghidra

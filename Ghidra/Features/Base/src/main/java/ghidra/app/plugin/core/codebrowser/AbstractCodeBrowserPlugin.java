@@ -38,7 +38,7 @@ import ghidra.app.events.ProgramSelectionPluginEvent;
 import ghidra.app.nav.Navigatable;
 import ghidra.app.plugin.core.codebrowser.hover.ListingHoverService;
 import ghidra.app.services.*;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.ProgramDropProvider;
 import ghidra.app.util.viewer.field.*;
 import ghidra.app.util.viewer.format.*;
@@ -114,7 +114,6 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 		initMiscellaneousOptions();
 		displayOptions.addOptionsChangeListener(this);
 		fieldOptions.addOptionsChangeListener(this);
-		tool.setDefaultComponent(connectedProvider);
 		markerChangeListener = new MarkerChangeListener(connectedProvider);
 	}
 
@@ -322,13 +321,13 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	}
 
 	@Override
-	public void removeHighlightProvider(HighlightProvider highlightProvider,
+	public void removeHighlightProvider(ListingHighlightProvider highlightProvider,
 			Program highlightProgram) {
 		connectedProvider.removeHighlightProvider(highlightProvider, highlightProgram);
 	}
 
 	@Override
-	public void setHighlightProvider(HighlightProvider highlightProvider,
+	public void setHighlightProvider(ListingHighlightProvider highlightProvider,
 			Program highlightProgram) {
 		connectedProvider.setHighlightProvider(highlightProvider, highlightProgram);
 	}
@@ -775,7 +774,7 @@ public abstract class AbstractCodeBrowserPlugin<P extends CodeViewerProvider> ex
 	public boolean goTo(ProgramLocation location, boolean centerOnScreen) {
 
 		return Swing
-				.runNow(() -> connectedProvider.getListingPanel().goTo(location, centerOnScreen));
+			.runNow(() -> connectedProvider.getListingPanel().goTo(location, centerOnScreen));
 	}
 
 	@Override

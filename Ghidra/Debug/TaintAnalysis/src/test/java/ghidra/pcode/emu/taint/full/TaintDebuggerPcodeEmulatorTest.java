@@ -15,13 +15,15 @@
  */
 package ghidra.pcode.emu.taint.full;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.util.Set;
 
 import org.junit.Before;
 import org.junit.Test;
 
+import db.Transaction;
 import ghidra.app.plugin.assembler.Assembler;
 import ghidra.app.plugin.assembler.Assemblers;
 import ghidra.app.plugin.core.debug.gui.AbstractGhidraHeadedDebuggerGUITest;
@@ -29,19 +31,18 @@ import ghidra.app.plugin.core.debug.service.emulation.DebuggerEmulationServicePl
 import ghidra.app.plugin.core.debug.service.emulation.DebuggerPcodeMachine;
 import ghidra.app.plugin.core.debug.service.modules.DebuggerStaticMappingServicePlugin;
 import ghidra.app.services.DebuggerEmulationService;
+import ghidra.app.services.DebuggerEmulationService.EmulationResult;
 import ghidra.app.services.DebuggerStaticMappingService;
 import ghidra.pcode.emu.taint.trace.TaintTracePcodeEmulatorTest;
 import ghidra.pcode.emu.taint.trace.TaintTracePcodeExecutorStatePiece;
 import ghidra.program.model.address.AddressSpace;
 import ghidra.program.model.util.StringPropertyMap;
 import ghidra.program.util.ProgramLocation;
-import ghidra.trace.model.DefaultTraceLocation;
-import ghidra.trace.model.Lifespan;
+import ghidra.trace.model.*;
 import ghidra.trace.model.property.TracePropertyMap;
 import ghidra.trace.model.property.TracePropertyMapSpace;
 import ghidra.trace.model.thread.TraceThread;
-import ghidra.trace.model.time.schedule.TraceSchedule;
-import ghidra.util.database.UndoableTransaction;
+import ghidra.trace.model.time.schedule.*;
 import ghidra.util.task.TaskMonitor;
 
 public class TaintDebuggerPcodeEmulatorTest extends AbstractGhidraHeadedDebuggerGUITest {
@@ -69,17 +70,25 @@ public class TaintDebuggerPcodeEmulatorTest extends AbstractGhidraHeadedDebugger
 
 		createAndOpenTrace();
 
-		try (UndoableTransaction tid = tb.startTransaction()) {
+		try (Transaction tx = tb.startTransaction()) {
 			tb.getOrAddThread("Threads[0]", 0);
 		}
 
 		traceManager.activateTrace(tb.trace);
 
-		TraceSchedule time = TraceSchedule.parse("0:t0-1");
-		emuService.emulate(tb.trace, time, TaskMonitor.DUMMY);
-		traceManager.activateTime(time);
+		EmulationResult result =
+			emuService.run(tb.host, TraceSchedule.snap(0), monitor, new Scheduler() {
+				int calls = 0;
 
-		DebuggerPcodeMachine<?> emu = emuService.getCachedEmulator(tb.trace, time);
+				@Override
+				public TickStep nextSlice(Trace trace) {
+					// Expect decode of uninitialized memory immediately
+					assertEquals(0, calls++);
+					return new TickStep(0, 1);
+				}
+			});
+
+		DebuggerPcodeMachine<?> emu = emuService.getCachedEmulator(tb.trace, result.schedule());
 		assertTrue(emu instanceof TaintDebuggerPcodeEmulator);
 	}
 
@@ -97,7 +106,7 @@ public class TaintDebuggerPcodeEmulatorTest extends AbstractGhidraHeadedDebugger
 
 		AddressSpace rs = tb.language.getAddressFactory().getRegisterSpace();
 		TraceThread thread;
-		try (UndoableTransaction tid = tb.startTransaction()) {
+		try (Transaction tx = tb.startTransaction()) {
 			mappingService.addMapping(
 				new DefaultTraceLocation(tb.trace, null, Lifespan.nowOn(0), tb.addr(0x55550000)),
 				new ProgramLocation(program, tb.addr(0x00400000)), 0x1000, false);
@@ -109,7 +118,7 @@ public class TaintDebuggerPcodeEmulatorTest extends AbstractGhidraHeadedDebugger
 			mappingService.getOpenMappedLocation(
 				new DefaultTraceLocation(tb.trace, null, Lifespan.at(0), tb.addr(0x55550000)))));
 
-		try (UndoableTransaction tid = UndoableTransaction.start(program, "Assemble")) {
+		try (Transaction tx = program.openTransaction("Assemble")) {
 			program.getMemory()
 					.createInitializedBlock(".text", tb.addr(0x00400000), 0x1000, (byte) 0,
 						TaskMonitor.DUMMY, false);

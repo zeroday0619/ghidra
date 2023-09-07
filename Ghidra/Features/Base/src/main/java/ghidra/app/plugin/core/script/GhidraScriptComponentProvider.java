@@ -19,7 +19,6 @@ import java.awt.BorderLayout;
 import java.awt.Rectangle;
 import java.awt.event.*;
 import java.io.*;
-import java.lang.reflect.InvocationTargetException;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -38,6 +37,7 @@ import javax.swing.tree.TreeSelectionModel;
 import org.apache.commons.lang3.StringUtils;
 
 import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.KeyBindingData;
 import docking.event.mouse.GMouseListenerAdapter;
 import docking.widgets.OptionDialog;
@@ -176,7 +176,7 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 		});
 
 		scriptCategoryTree.getSelectionModel()
-				.setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
+			.setSelectionMode(TreeSelectionModel.SINGLE_TREE_SELECTION);
 	}
 
 	private void build() {
@@ -475,11 +475,11 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 	 */
 	public List<ResourceFile> getScriptDirectories() {
 		return bundleHost.getGhidraBundles()
-				.stream()
-				.filter(GhidraSourceBundle.class::isInstance)
-				.filter(GhidraBundle::isEnabled)
-				.map(GhidraBundle::getFile)
-				.collect(Collectors.toList());
+			.stream()
+			.filter(GhidraSourceBundle.class::isInstance)
+			.filter(GhidraBundle::isEnabled)
+			.map(GhidraBundle::getFile)
+			.collect(Collectors.toList());
 	}
 
 	/**
@@ -487,12 +487,12 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 	 */
 	public List<ResourceFile> getWritableScriptDirectories() {
 		return bundleHost.getGhidraBundles()
-				.stream()
-				.filter(GhidraSourceBundle.class::isInstance)
-				.filter(Predicate.not(GhidraBundle::isSystemBundle))
-				.filter(GhidraBundle::isEnabled)
-				.map(GhidraBundle::getFile)
-				.collect(Collectors.toList());
+			.stream()
+			.filter(GhidraSourceBundle.class::isInstance)
+			.filter(Predicate.not(GhidraBundle::isSystemBundle))
+			.filter(GhidraBundle::isEnabled)
+			.map(GhidraBundle::getFile)
+			.collect(Collectors.toList());
 	}
 
 	boolean isEditorOpen(ResourceFile script) {
@@ -647,9 +647,9 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 
 		AtomicReference<GhidraScript> ref = new AtomicReference<>();
 		TaskBuilder.withRunnable(monitor -> ref.set(scriptSupplier.get()))
-				.setTitle("Compiling Script Directory")
-				.setLaunchDelay(1000)
-				.launchModal();
+			.setTitle("Compiling Script Directory")
+			.setLaunchDelay(1000)
+			.launchModal();
 
 		return ref.get();
 	}
@@ -1036,20 +1036,16 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 	}
 
 	private void updateDescriptionPanel() {
-		String text = "Error! no script info!";
 		ResourceFile script = getSelectedScript();
-		if (script != null) {
-			ScriptInfo info = infoManager.getExistingScriptInfo(script);
-			if (info != null) {
-				text = info.getToolTipText();
-			}
-		}
-		final String ftext = text;
+		ScriptInfo info = infoManager.getExistingScriptInfo(script); // null script is ok
+		String text = script != null
+				? (info != null ? info.getToolTipText() : "Error! no script info!")
+				: null; // no selected script
 
 		// have to do an invokeLater here, since the DefaultCaret class runs in an invokeLater,
 		// which will overwrite our location setting
 		SwingUtilities.invokeLater(() -> {
-			descriptionTextPane.setText(ftext);
+			descriptionTextPane.setText(text);
 			descriptionTextPane.setCaretPosition(0);
 		});
 	}
@@ -1136,11 +1132,11 @@ public class GhidraScriptComponentProvider extends ComponentProviderAdapter {
 
 		int[] selectedRows = scriptTable.getSelectedRows();
 		if (selectedRows.length != 1) {
-			return new ActionContext(this, scriptTable); // can only work on one selection at a time
+			return new DefaultActionContext(this, scriptTable); // can only work on one selection at a time
 		}
 
 		ResourceFile script = tableModel.getRowObject(selectedRows[0]);
-		return new ActionContext(this, script, scriptTable);
+		return new DefaultActionContext(this, script, scriptTable);
 	}
 
 	@Override

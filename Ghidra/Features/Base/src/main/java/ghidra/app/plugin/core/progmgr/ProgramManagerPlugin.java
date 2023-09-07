@@ -472,7 +472,7 @@ public class ProgramManagerPlugin extends Plugin implements ProgramManager {
 
 	@Override
 	protected boolean saveData() {
-		boolean result = programSaveMgr.canCloseAll();
+		boolean result = programSaveMgr.saveAll();
 		contextChanged();
 		return result;
 	}
@@ -771,8 +771,9 @@ public class ProgramManagerPlugin extends Plugin implements ProgramManager {
 			return; // do not save state when locked.
 		}
 
-		if (programInfo.ghidraURL != null) {
-			saveState.putString("URL_" + index, programInfo.ghidraURL.toString());
+		URL url = programInfo.getGhidraUrl();
+		if (url != null) {
+			saveState.putString("URL_" + index, url.toString());
 			return;
 		}
 

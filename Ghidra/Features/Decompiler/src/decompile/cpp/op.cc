@@ -16,6 +16,8 @@
 #include "op.hh"
 #include "funcdata.hh"
 
+namespace ghidra {
+
 ElementId ELEM_IOP = ElementId("iop",113);
 ElementId ELEM_UNIMPL = ElementId("unimpl",114);
 
@@ -119,7 +121,6 @@ int4 PcodeOp::getRepeatSlot(const Varnode *vn,int4 firstSlot,list<PcodeOp *>::co
 bool PcodeOp::isCollapsible(void) const
 
 {
-  if (code() == CPUI_COPY) return false;
   if ((flags & PcodeOp::nocollapse)!=0) return false;
   if (!isAssignment()) return false;
   if (inrefs.size()==0) return false;
@@ -645,6 +646,10 @@ uintb PcodeOp::getNZMaskLocal(bool cliploop) const
     resmask = coveringmask((uintb)sz1);
     resmask &= fullmask;
     break;
+  case CPUI_LZCOUNT:
+    resmask = coveringmask(getIn(0)->getSize() * 8);
+    resmask &= fullmask;
+    break;
   case CPUI_SUBPIECE:
     resmask = getIn(0)->getNZMask();
     sz1 = (int4)getIn(1)->getOffset();
@@ -796,6 +801,7 @@ Varnode *PieceNode::findRoot(Varnode *vn)
       Address addr = op->getOut()->getAddr();
       if (addr.getSpace()->isBigEndian() == (slot == 1))
 	addr = addr + op->getIn(1-slot)->getSize();
+      addr.renormalize(vn->getSize());		// Allow for possible join address
       if (addr == vn->getAddr()) {
 	if (pieceOp != (PcodeOp *)0) {		// If there is more than one valid PIECE
 	  if (op->compareOrder(pieceOp))	// Attach this to earliest one
@@ -1325,3 +1331,5 @@ bool functionalDifference(Varnode *vn1,Varnode *vn2,int4 depth)
       return true;
   return false;
 }
+
+} // End namespace ghidra

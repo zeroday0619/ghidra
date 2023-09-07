@@ -16,6 +16,8 @@
 #include "varnode.hh"
 #include "funcdata.hh"
 
+namespace ghidra {
+
 AttributeId ATTRIB_ADDRTIED = AttributeId("addrtied",30);
 AttributeId ATTRIB_GRP = AttributeId("grp",31);
 AttributeId ATTRIB_INPUT = AttributeId("input",32);
@@ -171,7 +173,7 @@ int4 Varnode::characterizeOverlap(const Varnode &op) const
 /// I.e. return
 ///     - 0 if it overlaps op's lsb
 ///     - 1 if it overlaps op's second lsb  and so on
-/// \param op is Varnode to test for overlap
+/// \param op is the Varnode to test for overlap
 /// \return the relative overlap point or -1
 int4 Varnode::overlap(const Varnode &op) const
 
@@ -180,6 +182,25 @@ int4 Varnode::overlap(const Varnode &op) const
     return loc.overlap(0,op.loc,op.size);
   else {			// Big endian
     int4 over = loc.overlap(size-1,op.loc,op.size);
+    if (over != -1)
+      return op.size-1-over;
+  }
+  return -1;
+}
+
+/// Return whether \e Least \e Signifigant \e Byte of \b this occurs in \b op.
+/// If \b op is in the \e join space, \b this can be in one of the pieces associated with the \e join range, and
+/// the offset returned will take into account the relative position of the piece within the whole \e join.
+/// Otherwise, this method is equivalent to Varnode::overlap.
+/// \param op is the Varnode to test for overlap
+/// \return the relative overlap point or -1
+int4 Varnode::overlapJoin(const Varnode &op) const
+
+{
+  if (!loc.isBigEndian())	// Little endian
+    return loc.overlapJoin(0,op.loc,op.size);
+  else {			// Big endian
+    int4 over = loc.overlapJoin(size-1,op.loc,op.size);
     if (over != -1)
       return op.size-1-over;
   }
@@ -1655,20 +1676,22 @@ uint4 VarnodeBank::overlapLoc(VarnodeLocSet::const_iterator iter,vector<VarnodeL
   Varnode *vn = *iter;
   AddrSpace *spc = vn->getSpace();
   uintb off = vn->getOffset();
-  uintb maxoff = off + (vn->getSize() - 1);
+  uintb maxOff = off + (vn->getSize() - 1);
   uint4 flags = vn->getFlags();
   bounds.push_back(iter);
   iter = endLoc(vn->getSize(),vn->getAddr(),Varnode::written);
   bounds.push_back(iter);
   while(iter != loc_tree.end()) {
     vn = *iter;
-    if (vn->getSpace() != spc || vn->getOffset() > maxoff)
+    if (vn->getSpace() != spc || vn->getOffset() > maxOff)
       break;
     if (vn->isFree()) {
       iter = endLoc(vn->getSize(),vn->getAddr(),0);
       continue;
     }
-    maxoff = vn->getOffset() + (vn->getSize() - 1);
+    uintb endOff = vn->getOffset() + (vn->getSize() - 1);
+    if (endOff > maxOff)
+      maxOff = endOff;
     flags |= vn->getFlags();
     bounds.push_back(iter);
     iter = endLoc(vn->getSize(),vn->getAddr(),Varnode::written);
@@ -1933,3 +1956,4 @@ Varnode *findContiguousWhole(Funcdata &data,Varnode *vn1,Varnode *vn2)
   return (Varnode *)0;
 }
 
+} // End namespace ghidra

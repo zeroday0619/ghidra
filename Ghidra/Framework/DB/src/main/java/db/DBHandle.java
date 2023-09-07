@@ -21,6 +21,7 @@ import java.util.Hashtable;
 import java.util.Iterator;
 
 import db.buffers.*;
+import db.util.ErrorHandler;
 import ghidra.util.Msg;
 import ghidra.util.UniversalIdGenerator;
 import ghidra.util.datastruct.WeakDataStructureFactory;
@@ -421,6 +422,40 @@ public class DBHandle {
 	 */
 	public boolean isTransactionActive() {
 		return txStarted;
+	}
+
+	/**
+	 * Open new transaction.  This should generally be done with a try-with-resources block:
+	 * <pre>
+	 * try (Transaction tx = dbHandle.openTransaction(dbErrorHandler)) {
+	 * 	// ... Do something
+	 * }
+	 * </pre>
+	 * 
+	 * @param errorHandler handler resposible for handling an IOException which may result during
+	 * transaction processing.  In general, a {@link RuntimeException} should be thrown by the 
+	 * handler to ensure continued processing is properly signaled/interupted.
+	 * @return transaction object
+	 * @throws IllegalStateException if transaction is already active or this {@link DBHandle} has 
+	 * already been closed.
+	 */
+	public Transaction openTransaction(ErrorHandler errorHandler)
+			throws IllegalStateException {
+		return new Transaction() {
+
+			long txId = startTransaction();
+
+			@Override
+			protected boolean endTransaction(boolean commit) {
+				try {
+					return DBHandle.this.endTransaction(txId, commit);
+				}
+				catch (IOException e) {
+					errorHandler.dbError(e);
+				}
+				return false;
+			}
+		};
 	}
 
 	/**
@@ -1020,7 +1055,7 @@ public class DBHandle {
 		Table table;
 		synchronized (this) {
 			if (tables.containsKey(name)) {
-				throw new IOException("Table already exists");
+				throw new IOException("Table already exists: " + name);
 			}
 			checkTransaction();
 			table = new Table(this, masterTable.createTableRecord(name, schema, -1));
@@ -1049,7 +1084,7 @@ public class DBHandle {
 		}
 		checkTransaction();
 		if (tables.containsKey(newName)) {
-			throw new DuplicateNameException("Table already exists");
+			throw new DuplicateNameException("Table already exists: " + newName);
 		}
 		Table table = tables.remove(oldName);
 		if (table == null) {

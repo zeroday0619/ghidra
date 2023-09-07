@@ -15,6 +15,8 @@
  */
 #include "funcdata.hh"
 
+namespace ghidra {
+
 // Funcdata members pertaining directly to varnodes
 
 /// Properties of a given storage location are gathered from symbol information and
@@ -869,24 +871,6 @@ bool Funcdata::syncVarnodesWithSymbols(const ScopeLocal *lm,bool updateDatatypes
   return updateoccurred;
 }
 
-/// If the Varnode is a partial of a Symbol with a \e union data-type component, we assign
-/// a partial union data-type (TypePartialUnion) to the Varnode, so that facing resolutions
-/// can be provided.
-/// \param vn is the given Varnode
-/// \return the partial data-type or null
-Datatype *Funcdata::checkSymbolType(Varnode *vn)
-
-{
-  if (vn->isTypeLock()) return vn->getType();
-  SymbolEntry *entry = vn->getSymbolEntry();
-  Symbol *sym = entry->getSymbol();
-  Datatype *curType = sym->getType();
-  if (curType->getSize() == vn->getSize())
-    return (Datatype *)0;
-  int4 curOff = (vn->getAddr().getOffset() - entry->getAddr().getOffset()) + entry->getOffset();
-  return glb->types->getExactPiece(curType, curOff, vn->getSize());
-}
-
 /// A Varnode overlaps the given SymbolEntry.  Make sure the Varnode is part of the variable
 /// underlying the Symbol.  If not, remap things so that the Varnode maps to a distinct Symbol.
 /// In either case, attach the appropriate Symbol to the Varnode
@@ -1037,9 +1021,13 @@ void Funcdata::linkProtoPartial(Varnode *vn)
   Varnode *rootVn = PieceNode::findRoot(vn);
   if (rootVn == vn) return;
 
-  Varnode *nameRep = rootVn->getHigh()->getNameRepresentative();
+  HighVariable *rootHigh = rootVn->getHigh();
+  if (!rootHigh->isSameGroup(high))
+    return;
+  Varnode *nameRep = rootHigh->getNameRepresentative();
   Symbol *sym = linkSymbol(nameRep);
   if (sym == (Symbol *)0) return;
+  rootHigh->establishGroupSymbolOffset();
   SymbolEntry *entry = sym->getFirstWholeMap();
   vn->setSymbolEntry(entry);
 }
@@ -2060,3 +2048,5 @@ bool AncestorRealistic::execute(PcodeOp *op,int4 slot,ParamTrial *t,bool allowFa
   }
   return false;
 }
+
+} // End namespace ghidra

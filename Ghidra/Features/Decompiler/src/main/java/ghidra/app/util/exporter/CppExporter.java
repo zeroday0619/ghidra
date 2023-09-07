@@ -20,9 +20,11 @@ import java.util.*;
 
 import org.apache.commons.lang3.StringUtils;
 
+import docking.options.OptionsService;
 import generic.cache.CachingPool;
 import generic.cache.CountingBasicFactory;
 import generic.concurrent.QCallback;
+import ghidra.GhidraOptions;
 import ghidra.app.decompiler.*;
 import ghidra.app.decompiler.DecompileOptions.CommentStyleEnum;
 import ghidra.app.decompiler.parallel.ChunkingParallelDecompiler;
@@ -30,7 +32,6 @@ import ghidra.app.decompiler.parallel.ParallelDecompiler;
 import ghidra.app.util.*;
 import ghidra.framework.model.DomainObject;
 import ghidra.framework.options.ToolOptions;
-import ghidra.framework.plugintool.util.OptionsService;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.*;
@@ -67,15 +68,13 @@ public class CppExporter extends Exporter {
 		super("C/C++", "c", new HelpLocation("ExporterPlugin", "c_cpp"));
 	}
 
-	public CppExporter(DecompileOptions options) {
+	public CppExporter(DecompileOptions options, boolean createHeader, boolean createFile,
+			boolean emitTypes, boolean excludeTags, String tags) {
 		this();
 		this.options = options;
-		this.userSuppliedOptions = true;
-	}
-
-	public CppExporter(boolean createHeader, boolean createFile, boolean emitTypes,
-			boolean excludeTags, String tags) {
-		this();
+		if (options != null) {
+			userSuppliedOptions = true;
+		}
 		isCreateHeaderFile = createHeader;
 		isCreateCFile = createFile;
 		emitDataTypeDefinitions = emitTypes;
@@ -124,7 +123,7 @@ public class CppExporter extends Exporter {
 			if (emitDataTypeDefinitions) {
 				writeProgramDataTypes(program, header, headerWriter, cFileWriter, chunkingMonitor);
 			}
-			chunkingMonitor.checkCanceled();
+			chunkingMonitor.checkCancelled();
 
 			decompileAndExport(addrSet, program, headerWriter, cFileWriter, parallelDecompiler,
 				chunkingMonitor);
@@ -207,14 +206,14 @@ public class CppExporter extends Exporter {
 
 	private void writeResults(List<CPPResult> results, PrintWriter headerWriter,
 			PrintWriter cFileWriter, TaskMonitor monitor) throws CancelledException {
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		Collections.sort(results);
 
 		StringBuilder headers = new StringBuilder();
 		StringBuilder bodies = new StringBuilder();
 		for (CPPResult result : results) {
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 			if (result == null) {
 				continue;
 			}
@@ -231,7 +230,7 @@ public class CppExporter extends Exporter {
 			}
 		}
 
-		monitor.checkCanceled();
+		monitor.checkCancelled();
 
 		if (headerWriter != null) {
 			headerWriter.println(headers.toString());
@@ -248,8 +247,10 @@ public class CppExporter extends Exporter {
 			if (provider != null) {
 				OptionsService service = provider.getService(OptionsService.class);
 				if (service != null) {
+					ToolOptions fieldOptions =
+						service.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 					ToolOptions opt = service.getOptions("Decompiler");
-					options.grabFromToolAndProgram(null, opt, program);
+					options.grabFromToolAndProgram(fieldOptions, opt, program);
 				}
 			}
 			else {
@@ -566,8 +567,8 @@ public class CppExporter extends Exporter {
 		}
 
 		@Override
-		public void checkCanceled() throws CancelledException {
-			monitor.checkCanceled();
+		public void checkCancelled() throws CancelledException {
+			monitor.checkCancelled();
 		}
 
 		@Override

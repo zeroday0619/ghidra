@@ -226,16 +226,47 @@ public interface DataType {
 	public String getMnemonic(Settings settings);
 
 	/**
-	 * Get the length (number of 8-bit bytes) of this DataType.
+	 * Get the length of this DataType as a number of 8-bit bytes. 
 	 * <p>
-	 * NOTE: No datatype should ever return 0, even if {@link #isZeroLength()}, and only
-	 * {@link Dynamic} datatypes should return -1. If {@link #isZeroLength()} is true a length of 1
-	 * should be returned. Where a zero-length datatype can be handled (e.g., {@link Composite}) the
+	 * For primitive datatypes this reflects the smallest varnode which can be used to
+	 * contain its value (i.e., raw data length).  
+	 * <p>
+	 * Example: For x86 32-bit gcc an 80-bit {@code long double} {@link #getLength() raw data length} 
+	 * of 10-bytes will fit within a floating point register while its {@link #getAlignedLength() aligned-length} 
+	 * of 12-bytes is used by the gcc compiler for data/array/component allocations to maintain alignment 
+	 * (i.e., {@code sizeof(long double)} ).
+	 * <p>
+	 * NOTE: Other than the {@link VoidDataType}, no datatype should ever return 0, even if 
+	 * {@link #isZeroLength()}, and only {@link Dynamic}/{@link FactoryDataType} datatypes 
+	 * should return -1.  If {@link #isZeroLength()} is true a length of 1 should be returned. 
+	 * Where a zero-length datatype can be handled (e.g., {@link Composite}) the 
 	 * {@link #isZeroLength()} method should be used.
 	 *
 	 * @return the length of this DataType
 	 */
 	public int getLength();
+
+	/**
+	 * Get the aligned-length of this datatype as a number of 8-bit bytes. 
+	 * <p>
+	 * For primitive datatypes this is equivalent to the C/C++ "sizeof" operation within source code and
+	 * should be used when determining {@link Array} element length or component sizing for  a 
+	 * {@link Composite}.   For {@link Pointer}, {@link Composite} and {@link Array} types this will 
+	 * return the same value as {@link #getLength()}. 
+	 * <p>
+	 * Example: For x86 32-bit gcc an 80-bit {@code long double} {@link #getLength() raw data length} 
+	 * of 10-bytes will fit within a floating point register while its {@link #getAlignedLength() aligned-length}  
+	 * of 12-bytes is used by the gcc compiler for data/array/component allocations to maintain alignment 
+	 * (i.e., {@code sizeof(long double)} ).
+	 * <p>
+	 * NOTE: Other than the {@link VoidDataType}, no datatype should ever return 0, even if 
+	 * {@link #isZeroLength()}, and only {@link Dynamic} / {@link FactoryDataType} /
+	 * {@link FunctionDefinition} datatypes should return -1.  If {@link #isZeroLength()} is true 
+	 * a length of 1 should be returned. 
+	 * 
+	 * @return byte length of binary encoding.
+	 */
+	public int getAlignedLength();
 
 	/**
 	 * Indicates this datatype is defined with a zero length.
@@ -290,16 +321,18 @@ public interface DataType {
 	public URL getDocs();
 
 	/**
-	 * Get the interpreted data value in the form of the appropriate Object for this DataType.
-	 * This method must return a value consistent with {@link #getValueClass(Settings)}.
+	 * Returns the interpreted data value as an instance of the 
+	 * {@link #getValueClass(Settings) advertised value class}.
 	 * <p>
-	 * For instance, if this datatype is a {@link Pointer} an Address object or null should be returned.
-	 * A Byte, returns a {@link Scalar} object.
+	 * For instance, {@link Pointer} data types should return an Address object (or null), or
+	 * integer data types should return a {@link Scalar} object.
 	 *
-	 * @param buf the data buffer.
+	 * @param buf the data buffer
 	 * @param settings the settings to use.
-	 * @param length the number of bytes to get the value from.
-	 * @return the data Object.
+	 * @param length indicates the maximum number of bytes that may be consumed by a 
+	 * {@link Dynamic} datatype, otherwise this value is ignored.  A value of -1 may be specified
+	 * to allow a Dynamic datatype to determine the length based upon the actual data bytes 
+	 * @return the data object, or null if data is invalid
 	 */
 	public Object getValue(MemBuffer buf, Settings settings, int length);
 

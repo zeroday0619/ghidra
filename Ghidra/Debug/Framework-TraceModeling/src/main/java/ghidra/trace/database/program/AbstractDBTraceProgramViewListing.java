@@ -18,9 +18,7 @@ package ghidra.trace.database.program;
 import java.nio.ByteBuffer;
 import java.util.*;
 
-import com.google.common.cache.CacheBuilder;
-import com.google.common.cache.RemovalNotification;
-import com.google.common.collect.Iterators;
+import org.apache.commons.collections4.IteratorUtils;
 
 import generic.NestedIterator;
 import ghidra.program.database.ProgramDB;
@@ -39,7 +37,6 @@ import ghidra.trace.database.DBTrace;
 import ghidra.trace.database.guest.InternalTracePlatform;
 import ghidra.trace.database.listing.UndefinedDBTraceData;
 import ghidra.trace.database.memory.DBTraceMemorySpace;
-import ghidra.trace.database.symbol.DBTraceFunctionSymbol;
 import ghidra.trace.database.thread.DBTraceThread;
 import ghidra.trace.model.*;
 import ghidra.trace.model.listing.*;
@@ -47,10 +44,10 @@ import ghidra.trace.model.memory.TraceMemoryRegion;
 import ghidra.trace.model.program.TraceProgramView;
 import ghidra.trace.model.program.TraceProgramViewListing;
 import ghidra.trace.model.property.TracePropertyMapOperations;
-import ghidra.trace.model.symbol.TraceFunctionSymbol;
 import ghidra.trace.util.*;
 import ghidra.util.*;
 import ghidra.util.AddressIteratorAdapter;
+import ghidra.util.datastruct.WeakValueHashMap;
 import ghidra.util.exception.*;
 import ghidra.util.task.TaskMonitor;
 
@@ -84,12 +81,7 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 		new HashMap<>();
 
 	protected final Map<AddressSnap, UndefinedDBTraceData> undefinedCache =
-		CacheBuilder.newBuilder()
-				.removalListener(
-					this::undefinedRemovedFromCache)
-				.weakValues()
-				.build()
-				.asMap();
+		new WeakValueHashMap<>();
 
 	public AbstractDBTraceProgramViewListing(DBTraceProgramView program,
 			TraceCodeOperations codeOperations) {
@@ -99,11 +91,6 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 		this.platform = program.trace.getPlatformManager().getHostPlatform();
 
 		this.rootModule = new DBTraceProgramViewRootModule(this);
-	}
-
-	private void undefinedRemovedFromCache(
-			RemovalNotification<AddressSnap, UndefinedDBTraceData> rn) {
-		// Do nothing
 	}
 
 	@Override
@@ -165,7 +152,7 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 
 	protected <T extends TraceCodeUnit> Iterator<T> getTopCodeIterator(
 			java.util.function.Function<Long, Iterator<T>> iterFunc, boolean forward) {
-		return Iterators.filter(
+		return IteratorUtils.filteredIterator(
 			program.viewport.mergedIterator(iterFunc, getUnitComparator(forward)),
 			cu -> program.isCodeVisible(cu, cu.getLifespan()));
 	}
@@ -239,16 +226,17 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 				defStart = defUnit.getMinAddress();
 			}
 		}
-		Iterator<AddressRange> defIter = Iterators.transform(
+		Iterator<AddressRange> defIter = IteratorUtils.transformedIterator(
 			getDefinedUnitIterator(defStart, forward), u -> u.getRange());
 		AddressRangeIterator undefIter =
 			AddressRangeIterators.subtract(set.iterator(forward), defIter, start, forward);
 		AddressIteratorAdapter undefAddrIter = new AddressIteratorAdapter(undefIter, forward);
-		return Iterators.transform(undefAddrIter.iterator(), a -> doCreateUndefinedUnit(a));
+		return IteratorUtils.transformedIterator(undefAddrIter.iterator(),
+			a -> doCreateUndefinedUnit(a));
 	}
 
 	protected AddressRangeIterator getUndefinedRangeIterator(AddressSetView set, boolean forward) {
-		Iterator<AddressRange> defIter = Iterators.transform(
+		Iterator<AddressRange> defIter = IteratorUtils.transformedIterator(
 			getDefinedUnitIterator(set, forward), u -> u.getRange());
 		return AddressRangeIterators.subtract(set.iterator(forward), defIter,
 			forward ? set.getMinAddress() : set.getMaxAddress(), forward);
@@ -274,7 +262,8 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 	protected Iterator<TraceData> getUndefinedDataIterator(AddressSetView set, boolean forward) {
 		AddressRangeIterator undefIter = getUndefinedRangeIterator(set, forward);
 		AddressIteratorAdapter undefAddrIter = new AddressIteratorAdapter(undefIter, forward);
-		return Iterators.transform(undefAddrIter.iterator(), a -> doCreateUndefinedUnit(a));
+		return IteratorUtils.transformedIterator(undefAddrIter.iterator(),
+			a -> doCreateUndefinedUnit(a));
 	}
 
 	protected Iterator<TraceCodeUnit> getCodeUnitIterator(AddressSetView set, boolean forward) {
@@ -667,7 +656,7 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 		AddressSet result = new AddressSet();
 		for (AddressRange range : getUndefinedRangeIterator(set, true)) {
 			result.add(range);
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 		}
 		return result;
 	}
@@ -719,18 +708,19 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 	}
 
 	@Override
-	@SuppressWarnings("rawtypes")
-	public PropertyMap getPropertyMap(String propertyName) {
+	public PropertyMap<?> getPropertyMap(String propertyName) {
 		// TODO Auto-generated method stub
 		return null;
 	}
 
 	@Override
 	public Instruction createInstruction(Address addr, InstructionPrototype prototype,
-			MemBuffer memBuf, ProcessorContextView context) throws CodeUnitInsertionException {
+			MemBuffer memBuf, ProcessorContextView context, int forcedLengthOverride)
+			throws CodeUnitInsertionException {
 		// TODO: Why memBuf? Can it vary from program memory?
 		return codeOperations.instructions()
-				.create(Lifespan.nowOn(program.snap), addr, platform, prototype, context);
+				.create(Lifespan.nowOn(program.snap), addr, platform, prototype, context,
+					forcedLengthOverride);
 	}
 
 	@Override
@@ -876,13 +866,13 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 	}
 
 	@Override
-	public TraceFunctionSymbol createFunction(String name, Address entryPoint, AddressSetView body,
+	public Function createFunction(String name, Address entryPoint, AddressSetView body,
 			SourceType source) throws InvalidInputException, OverlappingFunctionException {
 		return program.functionManager.createFunction(name, entryPoint, body, source);
 	}
 
 	@Override
-	public TraceFunctionSymbol createFunction(String name, Namespace nameSpace, Address entryPoint,
+	public Function createFunction(String name, Namespace nameSpace, Address entryPoint,
 			AddressSetView body, SourceType source)
 			throws InvalidInputException, OverlappingFunctionException {
 		return program.functionManager.createFunction(name, nameSpace, entryPoint, body, source);
@@ -900,22 +890,12 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 
 	@Override
 	public List<Function> getGlobalFunctions(String name) {
-		return new ArrayList<>(program.trace.getSymbolManager().functions().getGlobalsNamed(name));
+		return List.of();
 	}
 
 	@Override
 	public List<Function> getFunctions(String namespace, String name) {
-		// NOTE: This implementation allows namespaces to contain the separator symbol
-		List<Function> result = new ArrayList<>();
-		for (DBTraceFunctionSymbol func : program.trace.getSymbolManager()
-				.functions()
-				.getNamed(
-					name)) {
-			if (namespace.equals(func.getParentNamespace().getName(true))) {
-				result.add(func);
-			}
-		}
-		return result;
+		return List.of();
 	}
 
 	@Override
@@ -925,7 +905,7 @@ public abstract class AbstractDBTraceProgramViewListing implements TraceProgramV
 
 	@Override
 	public FunctionIterator getExternalFunctions() {
-		return program.functionManager.getExternalFunctions();
+		return EmptyFunctionIterator.INSTANCE;
 	}
 
 	@Override

@@ -22,6 +22,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.function.*;
 import java.util.stream.Collectors;
 
+import db.Transaction;
 import ghidra.app.plugin.core.debug.mapping.*;
 import ghidra.app.plugin.core.debug.service.model.interfaces.*;
 import ghidra.app.services.TraceRecorder;
@@ -38,7 +39,6 @@ import ghidra.trace.model.modules.TraceModule;
 import ghidra.trace.model.modules.TraceSection;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.util.Msg;
-import ghidra.util.database.UndoableTransaction;
 import ghidra.util.datastruct.ListenerSet;
 import ghidra.util.exception.DuplicateNameException;
 
@@ -118,6 +118,7 @@ public class TraceObjectManager {
 		putAttributesHandler(TargetBreakpointLocation.class,
 			this::attributesChangedBreakpointLocation);
 		putAttributesHandler(TargetMemoryRegion.class, this::attributesChangedMemoryRegion);
+		putAttributesHandler(TargetModule.class, this::attributesChangedModule);
 		putAttributesHandler(TargetRegister.class, this::attributesChangedRegister);
 		putAttributesHandler(TargetStackFrame.class, this::attributesChangedStackFrame);
 		putAttributesHandler(TargetThread.class, this::attributesChangedThread);
@@ -147,11 +148,12 @@ public class TraceObjectManager {
 		});
 	}
 
+	@SuppressWarnings("unchecked")
 	private <U extends TargetObject> BiFunction<TargetObject, Map<String, ?>, Void> putHandler(
-			Class<?> key, BiConsumer<TargetObject, Map<String, ?>> handler,
+			Class<?> key, BiConsumer<U, Map<String, ?>> handler,
 			LinkedHashMap<Class<?>, BiFunction<TargetObject, Map<String, ?>, Void>> handlerMap) {
 		return handlerMap.put(key, (u, v) -> {
-			handler.accept(u, v);
+			handler.accept((U) u, v);
 			return null;
 		});
 	}
@@ -172,7 +174,7 @@ public class TraceObjectManager {
 	}
 
 	public <U extends TargetObject> BiFunction<TargetObject, Map<String, ?>, Void> putAttributesHandler(
-			Class<?> key, BiConsumer<TargetObject, Map<String, ?>> handler) {
+			Class<U> key, BiConsumer<U, Map<String, ?>> handler) {
 		return putHandler(key, handler, handlerMapAttributes);
 	}
 
@@ -254,8 +256,8 @@ public class TraceObjectManager {
 			ManagedThreadRecorder threadRecorder = recorder.getThreadRecorder((TargetThread) added);
 			TraceThread traceThread = threadRecorder.getTraceThread();
 			recorder.createSnapshot(traceThread + " started", traceThread, null);
-			try (UndoableTransaction tid =
-				UndoableTransaction.start(recorder.getTrace(), "Adjust thread creation")) {
+			try (Transaction tx =
+				recorder.getTrace().openTransaction("Adjust thread creation")) {
 				long existing = traceThread.getCreationSnap();
 				if (existing == Long.MIN_VALUE) {
 					traceThread.setCreationSnap(recorder.getSnap());
@@ -509,6 +511,13 @@ public class TraceObjectManager {
 		}
 	}
 
+	public void attributesChangedModule(TargetModule module, Map<String, ?> added) {
+		if (added.containsKey(TargetModule.RANGE_ATTRIBUTE_NAME)) {
+			AddressRange traceRng = recorder.getMemoryMapper().targetToTrace(module.getRange());
+			recorder.moduleRecorder.moduleChanged(module, traceRng);
+		}
+	}
+
 	public void attributesChangedRegister(TargetObject parent, Map<String, ?> added) {
 		if (added.containsKey(TargetRegister.CONTAINER_ATTRIBUTE_NAME)) {
 			TargetRegister register = (TargetRegister) parent;
@@ -546,8 +555,7 @@ public class TraceObjectManager {
 			ManagedThreadRecorder rec = recorder.getThreadRecorderForSuccessor(thread);
 			if (rec != null) {
 				String name = (String) added.get(TargetObject.DISPLAY_ATTRIBUTE_NAME);
-				try (UndoableTransaction tid =
-					UndoableTransaction.start(rec.getTrace(), "Rename thread")) {
+				try (Transaction tx = rec.getTrace().openTransaction("Rename thread")) {
 					rec.getTraceThread().setName(name);
 				}
 			}

@@ -21,11 +21,10 @@ import java.util.ArrayList;
 
 import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.viewer.format.FieldFormatModel;
 import ghidra.app.util.viewer.proxy.FunctionProxy;
 import ghidra.app.util.viewer.proxy.ProxyObj;
-import ghidra.framework.options.Options;
 import ghidra.framework.options.ToolOptions;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.Library;
@@ -55,8 +54,8 @@ public class ThunkedFunctionFieldFactory extends FieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	public ThunkedFunctionFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
-			ToolOptions displayOptions, Options fieldOptions) {
+	public ThunkedFunctionFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
+			ToolOptions displayOptions, ToolOptions fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 	}
 
@@ -96,8 +95,9 @@ public class ThunkedFunctionFieldFactory extends FieldFactory {
 		as = new AttributedString("Thunked-Function: ", ListingColors.SEPARATOR, getMetrics());
 		textElements.add(new TextFieldElement(as, elementIndex++, 0));
 
-		as = new AttributedString(thunkedFunction.getName(true),
-			getThunkedFunctionNameColor(thunkedFunction), getMetrics());
+		String functionName = simplifyTemplates(thunkedFunction.getName(true));
+		as = new AttributedString(functionName, getThunkedFunctionNameColor(thunkedFunction),
+			getMetrics());
 		textElements.add(new TextFieldElement(as, elementIndex++, 0));
 
 		return ListingTextField.createSingleLineTextField(this, proxy,
@@ -139,7 +139,7 @@ public class ThunkedFunctionFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions pDisplayOptions, ToolOptions fieldOptions) {
 		return new ThunkedFunctionFieldFactory(formatModel, provider, pDisplayOptions,
 			fieldOptions);

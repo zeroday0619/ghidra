@@ -245,6 +245,7 @@ task assembleDistribution (type: Copy) {
 	exclude "**/certification.local.manifest"
 	exclude "**/.project"
 	exclude "**/.classpath"
+	exclude "**/.pydevproject"
 	exclude "**/delete.me"
 	exclude "**/.vs/**"
 	exclude "**/*.vcxproj.user"
@@ -417,6 +418,8 @@ task createExternalExtensions(type: Copy) {
 	
 	group 'private'
 	description "Creates directory of extensions that are external to the installation zip (does not clean up artifacts) [gradle/root/distribution.gradle]"
+	
+	dependsOn assembleSource
 	
 	destinationDir new File(DISTRIBUTION_DIR.getPath(), "external_extensions")
 	

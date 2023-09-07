@@ -42,7 +42,9 @@ import docking.menu.MultiStateDockingAction;
 import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.support.ViewerPosition;
 import generic.theme.GThemeDefaults.Colors;
+import ghidra.app.context.ListingActionContext;
 import ghidra.app.nav.ListingPanelContainer;
+import ghidra.app.plugin.core.clipboard.CodeBrowserClipboardProvider;
 import ghidra.app.plugin.core.codebrowser.CodeViewerProvider;
 import ghidra.app.plugin.core.codebrowser.MarkerServiceBackgroundColorModel;
 import ghidra.app.plugin.core.debug.DebuggerCoordinates;
@@ -185,7 +187,15 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		}
 
 		@Override
+		protected GoToInput getDefaultInput() {
+			return trackingTrait.getDefaultGoToInput(getLocation());
+		}
+
+		@Override
 		protected boolean goToAddress(Address address) {
+			if (syncTrait.isAutoSyncCursorWithStaticListing()) {
+				syncTrait.doAutoSyncCursorIntoStatic(new ProgramLocation(getProgram(), address));
+			}
 			return getListingPanel().goTo(address);
 		}
 	}
@@ -200,6 +210,7 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		protected void specChanged(LocationTrackingSpec spec) {
 			updateTitle();
 			trackingLabel.setText("");
+			trackingLabel.setToolTipText("");
 			trackingLabel.setForeground(Colors.FOREGROUND);
 			trackingSpecChangeListeners.fire.locationTrackingSpecChanged(spec);
 		}
@@ -326,7 +337,7 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		addDisplayListener(readsMemTrait.getDisplayListener());
 
 		JPanel northPanel = new JPanel(new BorderLayout());
-		northPanel.add(locationLabel, BorderLayout.WEST);
+		northPanel.add(locationLabel);
 		northPanel.add(trackingLabel, BorderLayout.EAST);
 		this.setNorthComponent(northPanel);
 		if (isConnected) {
@@ -392,11 +403,6 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		}
 		ControlMode mode = controlService.getCurrentMode(trace);
 		return !mode.canEdit(current);
-	}
-
-	@Override
-	public boolean isDynamicListing() {
-		return true;
 	}
 
 	@Override
@@ -660,6 +666,24 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		return DateUtils.formatDateTimestamp(new Date(snapshot.getRealTime()));
 	}
 
+	@Override
+	protected ListingActionContext newListingActionContext() {
+		return new DebuggerListingActionContext(this);
+	}
+
+	@Override
+	protected CodeBrowserClipboardProvider newClipboardProvider() {
+		return new CodeBrowserClipboardProvider(tool, this) {
+			@Override
+			public boolean isValidContext(ActionContext context) {
+				if (!(context instanceof DebuggerListingActionContext)) {
+					return false;
+				}
+				return context.getComponentProvider() == componentProvider;
+			}
+		};
+	}
+
 	protected void createActions() {
 		if (isMainListing()) {
 			actionAutoSyncCursorWithStaticListing =
@@ -878,7 +902,7 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		Address address = loc.getAddress();
 		TraceStaticMapping mapping = trace.getStaticMappingManager().findContaining(address, snap);
 		if (mapping != null) {
-			DomainFile df = ProgramURLUtils.getFileForHackedUpGhidraURL(tool.getProject(),
+			DomainFile df = ProgramURLUtils.getDomainFileFromOpenProject(tool.getProject(),
 				mapping.getStaticProgramURL());
 			if (df != null) {
 				doTryOpenProgram(df, DomainFile.DEFAULT_VERSION, ProgramManager.OPEN_CURRENT);
@@ -1043,7 +1067,9 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 	}
 
 	protected void goToAndUpdateTrackingLabel(TraceProgramView curView, ProgramLocation loc) {
-		trackingLabel.setText(trackingTrait.computeLabelText());
+		String labelText = trackingTrait.computeLabelText();
+		trackingLabel.setText(labelText);
+		trackingLabel.setToolTipText(labelText);
 		if (goTo(curView, loc)) {
 			trackingLabel.setForeground(Colors.FOREGROUND);
 		}
@@ -1061,12 +1087,20 @@ public class DebuggerListingProvider extends CodeViewerProvider {
 		TraceProgramView curView = current.getView();
 		if (!syncTrait.isAutoSyncCursorWithStaticListing() || trackedStatic == null) {
 			Swing.runIfSwingOrRunLater(() -> {
+				if (curView != current.getView()) {
+					// Trace changed before Swing scheduled us
+					return;
+				}
 				goToAndUpdateTrackingLabel(curView, loc);
 				doCheckCurrentModuleMissing();
 			});
 		}
 		else {
 			Swing.runIfSwingOrRunLater(() -> {
+				if (curView != current.getView()) {
+					// Trace changed before Swing scheduled us
+					return;
+				}
 				goToAndUpdateTrackingLabel(curView, loc);
 				doCheckCurrentModuleMissing();
 				plugin.fireStaticLocationEvent(trackedStatic);

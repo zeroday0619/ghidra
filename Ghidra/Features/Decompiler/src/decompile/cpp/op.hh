@@ -15,10 +15,12 @@
  */
 /// \file op.hh
 /// \brief The PcodeOp and PcodeOpBank classes
-#ifndef __CPUI_OP__
-#define __CPUI_OP__
+#ifndef __OP_HH__
+#define __OP_HH__
 
 #include "typeop.hh"
+
+namespace ghidra {
 
 extern ElementId ELEM_IOP;		///< Marshaling element \<iop>
 extern ElementId ELEM_UNIMPL;		///< Marshaling element \<unimpl>
@@ -112,7 +114,8 @@ public:
     is_cpool_transformed = 0x20, ///< Have we checked for cpool transforms
     stop_type_propagation = 0x40,	///< Stop data-type propagation into output from descendants
     hold_output = 0x80,		///< Output varnode (of call) should not be removed if it is unread
-    concat_root = 0x100		///< Output of \b this is root of a CONCAT tree
+    concat_root = 0x100,	///< Output of \b this is root of a CONCAT tree
+    no_indirect_collapse = 0x200	///< Do not collapse \b this INDIRECT (via RuleIndirectCollapse)
   };
 private:
   TypeOp *opcode;		///< Pointer to class providing behavioral details of the operation
@@ -217,6 +220,8 @@ public:
   void setPartialRoot(void) { addlflags |= concat_root; }	///< Mark \b this as root of CONCAT tree
   bool stopsCopyPropagation(void) const { return ((flags&no_copy_propagation)!=0); }	///< Does \b this allow COPY propagation
   void setStopCopyPropagation(void) { flags |= no_copy_propagation; }	///< Stop COPY propagation through inputs
+  bool noIndirectCollapse(void) const { return ((addlflags & no_indirect_collapse)!=0); }	///< Check if INDIRECT collapse is possible
+  void setNoIndirectCollapse(void) { addlflags |= no_indirect_collapse; }	///< Prevent collapse of INDIRECT
   /// \brief Return \b true if this LOADs or STOREs from a dynamic \e spacebase pointer
   bool usesSpacebasePtr(void) const { return ((flags&PcodeOp::spacebase_ptr)!=0); }
   uintm getCseHash(void) const;	///< Return hash indicating possibility of common subexpression elimination
@@ -252,6 +257,8 @@ struct PcodeOpNode {
   int4 slot;		///< Slot indicating the input Varnode end-point of the edge
   PcodeOpNode(void) { op = (PcodeOp *)0; slot = 0; }	///< Unused constructor
   PcodeOpNode(PcodeOp *o,int4 s) { op = o; slot = s; }	///< Constructor
+  bool operator<(const PcodeOpNode &op2) const;		///< Simple comparator for putting edges in a sorted container
+  static bool compareByHigh(const PcodeOpNode &a,const PcodeOpNode &b);	///< Compare Varnodes by their HighVariable
 };
 
 /// \brief A node in a tree structure of CPUI_PIECE operations
@@ -357,4 +364,28 @@ extern int4 functionalEqualityLevel(Varnode *vn1,Varnode *vn2,Varnode **res1,Var
 extern bool functionalEquality(Varnode *vn1,Varnode *vn2);
 extern bool functionalDifference(Varnode *vn1,Varnode *vn2,int4 depth);
 
+/// Compare PcodeOps (as pointers) first, then slot
+/// \param op2 is the other edge to compare with \b this
+/// \return true if \b this should come before the other PcodeOp
+inline bool PcodeOpNode::operator<(const PcodeOpNode &op2) const
+
+{
+  if (op != op2.op)
+    return (op->getSeqNum().getTime() < op2.op->getSeqNum().getTime());
+  if (slot != op2.slot)
+    return (slot < op2.slot);
+  return false;
+}
+
+/// Allow a sorting that groups together input Varnodes with the same HighVariable
+/// \param a is the first Varnode to compare
+/// \param b is the second Varnode to compare
+/// \return true is \b a should come before \b b
+inline bool PcodeOpNode::compareByHigh(const PcodeOpNode &a, const PcodeOpNode &b)
+
+{
+  return a.op->getIn(a.slot)->getHigh() < b.op->getIn(b.slot)->getHigh();
+}
+
+} // End namespace ghidra
 #endif

@@ -419,7 +419,7 @@ public class GTable extends JTable {
 		putClientProperty("JTable.autoStartsEdit", allowAutoEdit);
 	}
 
-	private void installEditKeyBinding() {
+	protected void installEditKeyBinding() {
 		AbstractAction action = new AbstractAction("StartEdit") {
 			@Override
 			public void actionPerformed(ActionEvent ev) {
@@ -940,13 +940,28 @@ public class GTable extends JTable {
 	public boolean editCellAt(int row, int column, EventObject e) {
 		boolean editAtCell = super.editCellAt(row, column, e);
 		if (editAtCell) {
-			Component editor = getEditorComponent();
-			editor.requestFocusInWindow();
-			if (editor instanceof JTextComponent textComponent) {
-				textComponent.selectAll();
-			}
+			requestTableEditorFocus();
 		}
 		return editAtCell;
+	}
+
+	public void requestTableEditorFocus() {
+		TableCellEditor currentEditor = getCellEditor();
+		Component editorComponent = getEditorComponent();
+		if (editorComponent == null) {
+			return; // not editing
+		}
+
+		if (currentEditor instanceof FocusableEditor focusable) {
+			focusable.focusEditor();
+		}
+		else {
+			editorComponent.requestFocusInWindow();
+		}
+
+		if (editorComponent instanceof JTextComponent textComponent) {
+			textComponent.selectAll();
+		}
 	}
 
 	public void scrollToSelectedRow() {

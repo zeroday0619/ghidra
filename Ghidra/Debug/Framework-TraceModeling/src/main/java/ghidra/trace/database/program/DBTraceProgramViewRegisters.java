@@ -19,6 +19,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
+import db.Transaction;
 import ghidra.framework.data.DomainObjectEventQueues;
 import ghidra.framework.model.*;
 import ghidra.framework.options.Options;
@@ -352,6 +353,11 @@ public class DBTraceProgramViewRegisters implements TraceProgramView {
 	}
 
 	@Override
+	public Transaction openTransaction(String description) throws IllegalStateException {
+		return view.openTransaction(description);
+	}
+
+	@Override
 	public int startTransaction(String description) {
 		return view.startTransaction(description);
 	}
@@ -367,8 +373,8 @@ public class DBTraceProgramViewRegisters implements TraceProgramView {
 	}
 
 	@Override
-	public Transaction getCurrentTransaction() {
-		return view.getCurrentTransaction();
+	public TransactionInfo getCurrentTransactionInfo() {
+		return view.getCurrentTransactionInfo();
 	}
 
 	@Override
@@ -605,6 +611,16 @@ public class DBTraceProgramViewRegisters implements TraceProgramView {
 	@Override
 	public String getRedoName() {
 		return view.getRedoName();
+	}
+
+	@Override
+	public List<String> getAllUndoNames() {
+		return view.getAllUndoNames();
+	}
+
+	@Override
+	public List<String> getAllRedoNames() {
+		return view.getAllRedoNames();
 	}
 
 	@Override

@@ -83,7 +83,7 @@ public class LabelFieldFactory extends FieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	private LabelFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
+	private LabelFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
 			ToolOptions displayOptions, ToolOptions fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 
@@ -250,27 +250,26 @@ public class LabelFieldFactory extends FieldFactory {
 	private String checkLabelString(Symbol symbol, Program program) {
 
 		if (!displayLocalNamespace && !displayNonLocalNamespace) {
-			return symbol.getName(); // no namespaces being shown
+			return simplifyTemplates(symbol.getName()); // no namespaces being shown
 		}
 
 		Namespace addressNamespace = program.getSymbolTable().getNamespace(symbol.getAddress());
 		Namespace symbolNamespace = symbol.getParentNamespace();
 		boolean isLocal = symbolNamespace.equals(addressNamespace);
 		if (!isLocal) {
-			return symbol.getName(displayNonLocalNamespace);
+			return simplifyTemplates(symbol.getName(displayNonLocalNamespace));
 		}
 
 		// O.K., we ARE a local namespace, how to display it?
 		if (!displayLocalNamespace) {
-			return symbol.getName();
+			return simplifyTemplates(symbol.getName());
 		}
 
 		// use the namespace name or a custom, user-defined value
 		if (useLocalPrefixOverride) {
-			return localPrefixText + symbol.getName(false);
+			return simplifyTemplates(localPrefixText + symbol.getName(false));
 		}
-		return symbol.getName(true);
-
+		return simplifyTemplates(symbol.getName(true));
 	}
 
 	private List<Address> getOffcutReferenceAddress(CodeUnit cu) {
@@ -450,7 +449,7 @@ public class LabelFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions pDisplayOptions, ToolOptions fieldOptions) {
 		return new LabelFieldFactory(formatModel, provider, pDisplayOptions, fieldOptions);
 	}

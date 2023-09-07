@@ -169,8 +169,7 @@ public abstract class AbstractPdb implements AutoCloseable {
 	 * @throws PdbException upon error in processing components
 	 * @throws CancelledException upon user cancellation
 	 */
-	public void deserialize()
-			throws IOException, PdbException, CancelledException {
+	public void deserialize() throws IOException, PdbException, CancelledException {
 		// msf should only be null for testing versions of PDB.
 		if (msf == null) {
 			return;
@@ -330,6 +329,8 @@ public abstract class AbstractPdb implements AutoCloseable {
 		recordNumber = fixupTypeIndex(recordNumber, typeClass);
 		AbstractMsType msType =
 			getTPI(recordNumber.getCategory()).getRecord(recordNumber.getNumber());
+//		AbstractMsType msType =
+//			getTPI(recordNumber.getCategory()).getRandomAccessRecord(recordNumber.getNumber());
 		if (!typeClass.isInstance(msType)) {
 			if (!recordNumber.isNoType()) {
 				PdbLog.logGetTypeClassMismatch(msType, typeClass);
@@ -474,8 +475,8 @@ public abstract class AbstractPdb implements AutoCloseable {
 	 * Check to see if this monitor has been canceled
 	 * @throws CancelledException if monitor has been cancelled
 	 */
-	public void checkCanceled() throws CancelledException {
-		getMonitor().checkCanceled();
+	public void checkCancelled() throws CancelledException {
+		getMonitor().checkCancelled();
 	}
 
 	/**
@@ -494,8 +495,7 @@ public abstract class AbstractPdb implements AutoCloseable {
 	 * @throws PdbException upon error in processing components
 	 * @throws CancelledException upon user cancellation
 	 */
-	void deserializeSubstreams()
-			throws IOException, PdbException, CancelledException {
+	void deserializeSubstreams() throws IOException, PdbException, CancelledException {
 
 		if (substreamsDeserialized) {
 			return;
@@ -594,8 +594,7 @@ public abstract class AbstractPdb implements AutoCloseable {
 	 * @throws PdbException upon error parsing a field
 	 * @throws CancelledException upon user cancellation
 	 */
-	abstract void deserializeDirectory()
-			throws IOException, PdbException, CancelledException;
+	abstract void deserializeDirectory() throws IOException, PdbException, CancelledException;
 
 	/**
 	 * Dumps the PDB Directory to {@link Writer}.  This package-protected method is for
@@ -616,8 +615,7 @@ public abstract class AbstractPdb implements AutoCloseable {
 	 *  inability to read required bytes
 	 * @throws CancelledException upon user cancellation
 	 */
-	protected PdbByteReader getDirectoryReader()
-			throws IOException, CancelledException {
+	protected PdbByteReader getDirectoryReader() throws IOException, CancelledException {
 		return getReaderForStreamNumber(PDB_DIRECTORY_STREAM_NUMBER, 0,
 			MsfStream.MAX_STREAM_LENGTH);
 	}
@@ -662,13 +660,13 @@ public abstract class AbstractPdb implements AutoCloseable {
 		nameTable.deserializeDirectory(reader);
 		// Read the parameters.
 		while (reader.hasMore()) {
-			getMonitor().checkCanceled();
+			getMonitor().checkCancelled();
 			int val = reader.parseInt();
 			parameters.add(val);
 		}
 		// Check the parameters for IDs
 		for (int param : parameters) {
-			getMonitor().checkCanceled();
+			getMonitor().checkCancelled();
 			if (param == MINIMAL_DEBUG_INFO_PARAM) {
 				minimalDebugInfo = true;
 			}

@@ -163,7 +163,6 @@ public abstract class ByteViewerComponentProvider extends ComponentProviderAdapt
 	 * Notification that an option changed.
 	 * 
 	 * @param options options object containing the property that changed
-	 * @param group
 	 * @param optionName name of option that changed
 	 * @param oldValue old value of the option
 	 * @param newValue new value of the option
@@ -226,8 +225,8 @@ public abstract class ByteViewerComponentProvider extends ComponentProviderAdapt
 		opt.registerOption(OPTION_HIGHLIGHT_CURSOR_LINE, true, help,
 			"Toggles highlighting background color of line containing the cursor");
 
-		Color missingValueColor = opt.getColor(SEPARATOR_COLOR_OPTION_NAME, SEPARATOR_COLOR);
-		panel.setSeparatorColor(missingValueColor);
+		Color separatorColor = opt.getColor(SEPARATOR_COLOR_OPTION_NAME, SEPARATOR_COLOR);
+		panel.setSeparatorColor(separatorColor);
 
 		panel.setCurrentCursorColor(CURSOR_ACTIVE_COLOR);
 		panel.setNonFocusCursorColor(CURSOR_NOT_FOCUSED_COLOR);

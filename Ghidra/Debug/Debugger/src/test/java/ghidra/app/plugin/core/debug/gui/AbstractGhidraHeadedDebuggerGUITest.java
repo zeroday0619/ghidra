@@ -37,7 +37,9 @@ import org.junit.rules.TestName;
 import org.junit.rules.TestWatcher;
 import org.junit.runner.Description;
 
+import db.Transaction;
 import docking.ActionContext;
+import docking.DefaultActionContext;
 import docking.action.ActionContextProvider;
 import docking.action.DockingActionIf;
 import docking.widgets.table.DynamicTableColumn;
@@ -75,7 +77,6 @@ import ghidra.trace.model.memory.TraceMemorySpace;
 import ghidra.trace.model.thread.TraceThread;
 import ghidra.trace.util.TraceAddressSpace;
 import ghidra.util.InvalidNameException;
-import ghidra.util.database.UndoableTransaction;
 import ghidra.util.datastruct.ListenerMap;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.ConsoleTaskMonitor;
@@ -222,7 +223,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 	public static Language getToyBE64Language() {
 		try {
 			return DefaultLanguageService.getLanguageService()
-					.getLanguage(new LanguageID(LANGID_TOYBE64));
+				.getLanguage(new LanguageID(LANGID_TOYBE64));
 		}
 		catch (LanguageNotFoundException e) {
 			throw new AssertionError("Why is the Toy language missing?", e);
@@ -477,7 +478,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 			DockingActionIf action, boolean wait) {
 		ActionContext context = waitForValue(() -> {
 			ActionContext ctx = provider == null
-					? new ActionContext()
+					? new DefaultActionContext()
 					: provider.getActionContext(null);
 			if (!action.isEnabledForContext(ctx)) {
 				return null;
@@ -559,7 +560,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 			}
 		}
 	};
-	protected ConsoleTaskMonitor monitor = new ConsoleTaskMonitor();
+	protected final ConsoleTaskMonitor monitor = new ConsoleTaskMonitor();
 
 	protected void waitRecorder(TraceRecorder recorder) throws Throwable {
 		if (recorder == null) {
@@ -676,8 +677,8 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 	protected void intoProject(DomainObject obj) {
 		waitForDomainObject(obj);
 		DomainFolder rootFolder = tool.getProject()
-				.getProjectData()
-				.getRootFolder();
+			.getProjectData()
+			.getRootFolder();
 		waitForCondition(() -> {
 			try {
 				rootFolder.createFile(obj.getName(), obj, monitor);
@@ -702,7 +703,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 	}
 
 	protected void addSnapshot(String desc) throws IOException {
-		try (UndoableTransaction tid = tb.startTransaction()) {
+		try (Transaction tx = tb.startTransaction()) {
 			tb.trace.getTimeManager().createSnapshot(desc);
 		}
 	}
@@ -773,8 +774,7 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 		Language lang = getToyBE64Language();
 		program = new ProgramDB("static-" + name.getMethodName(), lang,
 			lang.getDefaultCompilerSpec(), this);
-		try (UndoableTransaction tid =
-			UndoableTransaction.start(program, "Set Executable Path")) {
+		try (Transaction tx = program.openTransaction("Set Executable Path")) {
 			program.setExecutablePath(path);
 		}
 		programManager.openProgram(program);
@@ -819,8 +819,8 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 			// get() is not my favorite, but it'll do for testing
 			// can't remove listener until observedTraceChange has completed.
 			bank.writeRegistersNamed(values)
-					.thenCompose(__ -> observedTraceChange)
-					.get(timeoutMillis, TimeUnit.MILLISECONDS);
+				.thenCompose(__ -> observedTraceChange)
+				.get(timeoutMillis, TimeUnit.MILLISECONDS);
 		}
 		finally {
 			trace.removeListener(listener);
@@ -836,8 +836,8 @@ public abstract class AbstractGhidraHeadedDebuggerGUITest
 
 	protected DomainFile unpack(File pack) throws Exception {
 		return tool.getProject()
-				.getProjectData()
-				.getRootFolder()
-				.createFile("Restored", pack, monitor);
+			.getProjectData()
+			.getRootFolder()
+			.createFile("Restored", pack, monitor);
 	}
 }

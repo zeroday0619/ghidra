@@ -15,24 +15,54 @@
  */
 package agent.dbgmodel.model.impl;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 
-import agent.dbgeng.dbgeng.*;
-import agent.dbgeng.manager.*;
+import agent.dbgeng.dbgeng.DebugModuleInfo;
+import agent.dbgeng.dbgeng.DebugProcessId;
+import agent.dbgeng.dbgeng.DebugSessionId;
+import agent.dbgeng.dbgeng.DebugSystemObjects;
+import agent.dbgeng.dbgeng.DebugThreadId;
+import agent.dbgeng.manager.DbgCause;
+import agent.dbgeng.manager.DbgProcess;
+import agent.dbgeng.manager.DbgReason;
+import agent.dbgeng.manager.DbgSession;
+import agent.dbgeng.manager.DbgStackFrame;
+import agent.dbgeng.manager.DbgState;
+import agent.dbgeng.manager.DbgThread;
 import agent.dbgeng.manager.breakpoint.DbgBreakpointInfo;
-import agent.dbgeng.manager.reason.*;
+import agent.dbgeng.manager.reason.DbgEndSteppingRangeReason;
+import agent.dbgeng.manager.reason.DbgExitNormallyReason;
+import agent.dbgeng.manager.reason.DbgExitedReason;
+import agent.dbgeng.manager.reason.DbgSignalReceivedReason;
 import agent.dbgeng.model.iface1.DbgModelSelectableObject;
 import agent.dbgeng.model.iface1.DbgModelTargetExecutionStateful;
-import agent.dbgeng.model.iface2.*;
+import agent.dbgeng.model.iface2.DbgModelTargetBreakpointSpec;
+import agent.dbgeng.model.iface2.DbgModelTargetConnector;
+import agent.dbgeng.model.iface2.DbgModelTargetModule;
+import agent.dbgeng.model.iface2.DbgModelTargetObject;
+import agent.dbgeng.model.iface2.DbgModelTargetProcess;
+import agent.dbgeng.model.iface2.DbgModelTargetProcessContainer;
+import agent.dbgeng.model.iface2.DbgModelTargetRoot;
+import agent.dbgeng.model.iface2.DbgModelTargetThread;
+import agent.dbgeng.model.iface2.DbgModelTargetThreadContainer;
 import agent.dbgeng.model.impl.DbgModelTargetConnectorContainerImpl;
 import agent.dbgeng.model.impl.DbgModelTargetProcessImpl;
 import agent.dbgmodel.dbgmodel.main.ModelObject;
 import agent.dbgmodel.manager.DbgManager2Impl;
 import ghidra.async.AsyncUtils;
 import ghidra.async.TypeSpec;
-import ghidra.dbg.target.*;
+import ghidra.dbg.DebuggerObjectModel.RefreshBehavior;
+import ghidra.dbg.target.TargetEventScope;
+import ghidra.dbg.target.TargetExecutionStateful;
 import ghidra.dbg.target.TargetExecutionStateful.TargetExecutionState;
+import ghidra.dbg.target.TargetFocusScope;
+import ghidra.dbg.target.TargetMethod;
+import ghidra.dbg.target.TargetObject;
+import ghidra.dbg.target.TargetThread;
 import ghidra.dbg.target.schema.TargetObjectSchema;
 import ghidra.dbg.util.PathUtils;
 import ghidra.util.Msg;
@@ -134,33 +164,25 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 
 	@Override
 	public void processSelected(DbgProcess process, DbgCause cause) {
-		objectSelected(process);
+		if (process != null) {
+			objectSelected(process);
+		}
 	}
 
 	@Override
 	public void threadSelected(DbgThread thread, DbgStackFrame frame, DbgCause cause) {
-		objectSelected(thread);
-		if (frame != null) {
-			objectSelected(frame);
+		if (thread != null) {
+			objectSelected(thread);
+			if (frame != null) {
+				objectSelected(frame);
+			}
 		}
 	}
 
 	public void objectSelected(Object object) {
 		List<String> objPath = findObject(object);
-		TargetObject obj = getModel().getModelObject(objPath);
-		if (obj instanceof DbgModelSelectableObject) {
-			setFocus((DbgModelSelectableObject) obj);
-		}
-		/*
-		getModel().fetchModelValue(objPath, true).thenAccept(obj -> {
-			if (obj instanceof DbgModelSelectableObject) {
-				setFocus((DbgModelSelectableObject) obj);
-			}
-		}).exceptionally(ex -> {
-			Msg.error("Could not set focus on selected object: " + PathUtils.toString(objPath), ex);
-			return null;
-		});
-		*/
+		model.fetchModelObject(objPath, RefreshBehavior.REFRESH_WHEN_ABSENT)
+				.thenAccept(obj -> update(obj));
 	}
 
 	@Override
@@ -176,7 +198,6 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 		getObject(proc).thenAccept(obj -> {
 			DbgModelTargetProcess targetProcess = (DbgModelTargetProcess) obj;
 			if (targetProcess == null) {
-				System.err.println("processAdded - null");
 				return;
 			}
 			DbgModelTargetProcessContainer container =
@@ -196,7 +217,6 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 		getObject(thread).thenAccept(obj -> {
 			DbgModelTargetThread targetThread = (DbgModelTargetThread) obj;
 			if (targetThread == null) {
-				System.err.println("threadCreated - null");
 				return;
 			}
 			DbgModelTargetThreadContainer container =
@@ -220,16 +240,11 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 			if (mod == null) {
 				return;
 			}
-			getObject(getManager().getEventThread()).thenAccept(t -> {
-				TargetThread eventThread = (TargetThread) t;
-				broadcast().event(getProxy(), eventThread, TargetEventType.MODULE_LOADED,
-					"Library " + info.getModuleName() + " loaded", List.of(mod));
-			});
 			getObject(getManager().getEventProcess()).thenAccept(p -> {
 				DbgModelTargetProcess eventProcess = (DbgModelTargetProcess) p;
 				DbgModel2TargetObjectImpl memory =
 					(DbgModel2TargetObjectImpl) eventProcess.getCachedAttribute("Memory");
-				memory.requestElements(false);
+				memory.requestElements(RefreshBehavior.REFRESH_NEVER);
 			});
 		});
 	}
@@ -241,16 +256,11 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 			if (mod == null) {
 				return;
 			}
-			getObject(getManager().getEventThread()).thenAccept(t -> {
-				TargetThread eventThread = (TargetThread) t;
-				broadcast().event(getProxy(), eventThread, TargetEventType.MODULE_UNLOADED,
-					"Library " + info.getModuleName() + " unloaded", List.of(mod));
-			});
 			getObject(getManager().getEventProcess()).thenAccept(p -> {
 				DbgModelTargetProcess eventProcess = (DbgModelTargetProcess) p;
 				DbgModel2TargetObjectImpl memory =
 					(DbgModel2TargetObjectImpl) eventProcess.getCachedAttribute("Memory");
-				memory.requestElements(false);
+				memory.requestElements(RefreshBehavior.REFRESH_NEVER);
 			});
 		});
 	}
@@ -270,12 +280,10 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 			getModel().fetchModelObject(objPath).handle(seq::next);
 		}, TypeSpec.cls(TargetObject.class)).then((pobj, seq) -> {
 			DbgModelTargetObject pimpl = (DbgModelTargetObject) pobj;
-			getModel().addModelObject(object, pimpl);
 			seq.exit(pimpl);
 		}).finish();
 	}
 
-	//TODO: fix this
 	private CompletableFuture<DbgModelTargetObject> getObjectRevisited(Object object,
 			List<String> ext, Object info) {
 		List<String> objPath = findObject(object);
@@ -287,7 +295,7 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 		xpath.addAll(ext);
 		// NB: fetchModelObject may have to be called with false
 		return AsyncUtils.sequence(TypeSpec.cls(DbgModelTargetObject.class)).then(seq -> {
-			getModel().fetchModelObject(xpath, false).handle(seq::next);
+			getModel().fetchModelObject(xpath, RefreshBehavior.REFRESH_NEVER).handle(seq::next);
 		}, TypeSpec.cls(TargetObject.class)).then((pobj, seq) -> {
 			if (pobj == null) {
 				seq.exit();
@@ -511,11 +519,11 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 		DebugSystemObjects so = getManager().getSystemObjects();
 		List<String> objpath = new ArrayList<>();
 		DebugSessionId sid = so.getCurrentSystemId();
-		String skey = sid.id < 0 ? PathUtils.makeKey("0x0")
-				: PathUtils.makeKey("0x" + Integer.toHexString(sid.id));
+		String skey = sid.value() < 0 ? PathUtils.makeKey("0x0")
+				: PathUtils.makeKey("0x" + sid.id());
 		if (obj instanceof DbgSession) {
 			DbgSession session = (DbgSession) obj;
-			skey = PathUtils.makeKey("0x" + Long.toHexString(session.getId().id));
+			skey = PathUtils.makeKey("0x" + session.getId().id());
 		}
 		if (obj instanceof DbgSession || obj instanceof String) {
 			objpath = List.of("Sessions", skey);
@@ -538,6 +546,12 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 			DbgProcess process = thread.getProcess();
 			tkey = PathUtils.makeKey("0x" + Long.toHexString(thread.getTid()));
 			pkey = PathUtils.makeKey("0x" + Long.toHexString(process.getPid()));
+			if (getManager().isKernelMode()) {
+				if (tkey.equals("[0x0]")) {
+					// Weird, but necessary...
+					pkey = "[0x0]";
+				}
+			}
 		}
 		if (obj instanceof DbgStackFrame) {
 			DbgStackFrame frame = (DbgStackFrame) obj;
@@ -554,6 +568,30 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 			objpath = List.of("Sessions", skey, "Processes", pkey, "Threads", tkey);
 		}
 		return objpath;
+	}
+
+	private void update(TargetObject obj) {
+		if (obj instanceof DbgModelSelectableObject) {
+			setFocus((DbgModelSelectableObject) obj);
+		}
+		if (obj instanceof DbgModelTargetExecutionStateful) {
+			activate((DbgModelTargetExecutionStateful) obj);
+			// OK, this sucks, but not all threads are parented to activated objects
+			DbgModelTargetProcess parentProcess = ((DbgModelTargetObject) obj).getParentProcess();
+			if (obj instanceof DbgModelTargetExecutionStateful) {
+				activate(parentProcess);
+			}
+		}
+	}
+
+	private void activate(DbgModelTargetExecutionStateful stateful) {
+		TargetExecutionState state = stateful.getExecutionState();
+		if (state.equals(TargetExecutionState.INACTIVE)) {
+			stateful.changeAttributes(List.of(), Map.of( //
+				TargetExecutionStateful.STATE_ATTRIBUTE_NAME, TargetExecutionState.ALIVE //
+			), "Selected");
+			stateful.fetchAttributes(RefreshBehavior.REFRESH_ALWAYS);
+		}
 	}
 
 	private TargetEventType getEventType(DbgState state, DbgCause cause, DbgReason reason) {
@@ -584,7 +622,7 @@ public class DbgModel2TargetRootImpl extends DbgModel2DefaultTargetModelRoot
 	}
 
 	@Override
-	public CompletableFuture<Void> requestAttributes(boolean refresh) {
+	public CompletableFuture<Void> requestAttributes(RefreshBehavior refresh) {
 		DbgManager2Impl manager2 = (DbgManager2Impl) getManager();
 		List<String> pathX = PathUtils.extend(List.of("Debugger"), path);
 		intrinsics.put(available.getName(), available);

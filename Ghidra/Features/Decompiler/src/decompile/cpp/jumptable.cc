@@ -17,6 +17,9 @@
 #include "emulate.hh"
 #include "flow.hh"
 
+namespace ghidra {
+
+
 AttributeId ATTRIB_LABEL = AttributeId("label",131);
 AttributeId ATTRIB_NUM = AttributeId("num",132);
 
@@ -341,9 +344,14 @@ bool JumpValuesRangeDefault::contains(uintb val) const
 bool JumpValuesRangeDefault::initializeForReading(void) const
 
 {
-  if (range.getSize()==0) return false;
-  curval = range.getMin();
-  lastvalue = false;
+  if (range.getSize()==0) {
+    curval = extravalue;
+    lastvalue = true;
+  }
+  else {
+    curval = range.getMin();
+    lastvalue = false;
+  }
   return true;
 }
 
@@ -606,7 +614,7 @@ static bool matching_constants(Varnode *vn1,Varnode *vn2)
 /// \param path is the specific branch to take from the CBRANCH to reach the switch
 /// \param rng is the range of values causing the switch path to be taken
 /// \param v is the Varnode holding the value controlling the CBRANCH
-/// \param unroll is \b true if the guard is duplicated across multiple blocks
+/// \param unr is \b true if the guard is duplicated across multiple blocks
 GuardRecord::GuardRecord(PcodeOp *bOp,PcodeOp *rOp,int4 path,const CircleRange &rng,Varnode *v,bool unr)
 
 {
@@ -2209,7 +2217,7 @@ void JumpTable::recoverModel(Funcdata *fd)
 {
   if (jmodel != (JumpModel *)0) {
     if (jmodel->isOverride()) {	// If preexisting model is override
-      jmodel->recoverModel(fd,indirect,0,maxtablesize);
+      jmodel->recoverModel(fd,indirect,0,glb->max_jumptable_size);
       return;
     }
     delete jmodel;		// Otherwise this is an old attempt we should remove
@@ -2220,18 +2228,18 @@ void JumpTable::recoverModel(Funcdata *fd)
     if (op->code() == CPUI_CALLOTHER) {
       JumpAssisted *jassisted = new JumpAssisted(this);
       jmodel = jassisted;
-      if (jmodel->recoverModel(fd,indirect,addresstable.size(),maxtablesize))
+      if (jmodel->recoverModel(fd,indirect,addresstable.size(),glb->max_jumptable_size))
 	return;
     }
   }
   JumpBasic *jbasic = new JumpBasic(this);
   jmodel = jbasic;
-  if (jmodel->recoverModel(fd,indirect,addresstable.size(),maxtablesize))
+  if (jmodel->recoverModel(fd,indirect,addresstable.size(),glb->max_jumptable_size))
     return;
   jmodel = new JumpBasic2(this);
   ((JumpBasic2 *)jmodel)->initializeStart(jbasic->getPathMeld());
   delete jbasic;
-  if (jmodel->recoverModel(fd,indirect,addresstable.size(),maxtablesize))
+  if (jmodel->recoverModel(fd,indirect,addresstable.size(),glb->max_jumptable_size))
     return;
   delete jmodel;
   jmodel = (JumpModel *)0;
@@ -2335,7 +2343,6 @@ JumpTable::JumpTable(Architecture *g,Address ad)
   switchVarConsume = ~((uintb)0);
   defaultBlock = -1;
   lastBlock = -1;
-  maxtablesize = 1024;
   maxaddsub = 1;
   maxleftright = 1;
   maxext = 1;
@@ -2356,7 +2363,6 @@ JumpTable::JumpTable(const JumpTable *op2)
   switchVarConsume = ~((uintb)0);
   defaultBlock = -1;
   lastBlock = op2->lastBlock;
-  maxtablesize = op2->maxtablesize;
   maxaddsub = op2->maxaddsub;
   maxleftright = op2->maxleftright;
   maxext = op2->maxext;
@@ -2674,7 +2680,7 @@ bool JumpTable::recoverLabels(Funcdata *fd)
   }
   else {
     jmodel = new JumpModelTrivial(this);
-    jmodel->recoverModel(fd,indirect,addresstable.size(),maxtablesize);
+    jmodel->recoverModel(fd,indirect,addresstable.size(),glb->max_jumptable_size);
     jmodel->buildAddresses(fd,indirect,addresstable,(vector<LoadTable> *)0);
     trivialSwitchOver();
     jmodel->buildLabels(fd,addresstable,label,origmodel);
@@ -2686,8 +2692,7 @@ bool JumpTable::recoverLabels(Funcdata *fd)
   return multistagerestart;
 }
 
-/// Clear out any data that is specific to a Funcdata instance.  The address table is not cleared
-/// if it was recovered, and override information is left intact.
+/// Clear out any data that is specific to a Funcdata instance.
 /// Right now this is only getting called, when the jumptable is an override in order to clear out derived data.
 void JumpTable::clear(void)
 
@@ -2702,12 +2707,14 @@ void JumpTable::clear(void)
     delete jmodel;
     jmodel = (JumpModel *)0;
   }
+  addresstable.clear();
   block2addr.clear();
   lastBlock = -1;
   label.clear();
   loadpoints.clear();
   indirect = (PcodeOp *)0;
   switchVarConsume = ~((uintb)0);
+  defaultBlock = -1;
   recoverystage = 0;
   // -opaddress- -maxtablesize- -maxaddsub- -maxleftright- -maxext- -collectloads- are permanent
 }
@@ -2811,3 +2818,5 @@ bool JumpTable::checkForMultistage(Funcdata *fd)
   }
   return false;
 }
+
+} // End namespace ghidra

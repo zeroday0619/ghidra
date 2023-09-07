@@ -22,6 +22,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import docking.widgets.OptionDialog;
+import docking.widgets.PasswordDialog;
 import docking.widgets.dialogs.MultiLineMessageDialog;
 import docking.widgets.filechooser.GhidraFileChooser;
 import docking.widgets.filechooser.GhidraFileChooserMode;
@@ -47,6 +48,7 @@ import ghidra.framework.Application;
 import ghidra.framework.client.*;
 import ghidra.framework.cmd.BackgroundCommand;
 import ghidra.framework.cmd.Command;
+import ghidra.framework.generic.auth.Password;
 import ghidra.framework.main.DataTreeDialog;
 import ghidra.framework.model.*;
 import ghidra.framework.options.OptionType;
@@ -395,7 +397,7 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		start();
 		try {
 			run();
-			monitor.checkCanceled();
+			monitor.checkCancelled();
 		}
 		finally {
 			end(true);
@@ -1881,6 +1883,9 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * @param transformer the function to turn a String into a T
 	 * @param key the values used to create a key for lookup in the script properties file
 	 * @return null if no value was found in the aforementioned sources
+	 * @throws IllegalArgumentException if the loaded String value cannot be parsed into a
+	 *                                  <code>T</code> or property not defined when in headless
+	 *                                  mode.
 	 */
 	private <T> T loadAskValue(StringTransformer<T> transformer, String key) {
 		T value = loadAskValue(null, transformer, key);
@@ -1895,11 +1900,12 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * @param defaultValue an optional default value that will be used if no suitable
 	 *                     value can be found in script args or a properties file
 	 * @param transformer the function to turn a String into a T
-	 * @param key the values used to create a key for lookup in the script properties file
+	 * @param key the value property key used for lookup in the script properties file
 	 * @return null if no value was found in the aforementioned sources
 	 *
 	 * @throws IllegalArgumentException if the loaded String value cannot be parsed into a
-	 *                                  <code>T</code>.
+	 *                                  <code>T</code> or property not defined when in headless
+	 *                                  mode and no defaultValue has been specified.
 	 */
 	private <T> T loadAskValue(T defaultValue, StringTransformer<T> transformer, String key) {
 
@@ -2505,13 +2511,61 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 * 			second part of the variable name (in headless mode or when using .properties file)
 	 * @return the user-specified Address value
 	 * @throws CancelledException if the user hit the 'cancel' button in GUI mode
-	 * @throws IllegalArgumentException if in headless mode, there was a missing or	invalid Address
+	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid Address
 	 * 			specified in the .properties file
 	 */
 	public Address askAddress(String title, String message) throws CancelledException {
+		return askAddress(title, message, null);
+	}
+
+	/**
+	 * Returns an Address, using the String parameters for guidance.  The actual behavior of the
+	 * method depends on your environment, which can be GUI or headless.
+	 * <p>
+	 * Regardless of environment -- if script arguments have been set, this method will use the
+	 * next argument in the array and advance the array index so the next call to an ask method
+	 * will get the next argument.  If there are no script arguments and a .properties file
+	 * sharing the same base name as the Ghidra Script exists (i.e., Script1.properties for
+	 * Script1.java), then this method will then look there for the String value to return.
+	 * The method will look in the .properties file by searching for a property name that is a
+	 * space-separated concatenation of the input String parameters (title + " " + message).
+	 * If that property name exists and its value represents a valid Address value, then the
+	 * .properties value will be used in the following way:
+	 * <ol>
+	 * 		<li>In the GUI environment, this method displays a popup dialog that prompts the user
+	 * 			for an address value. If the same popup has been run before in the same session,
+	 * 			the address input field will be pre-populated with the last-used address. If not,
+	 * 			the	address input field will be pre-populated with the .properties value (if it
+	 * 			exists).</li>
+	 *		<li>In the headless environment, this method returns an Address representing the
+	 *			.properties value (if it exists), or throws an Exception if there is an invalid or
+	 *			missing .properties value.</li>
+	 * </ol>
+	 *
+	 *
+	 * @param title the title of the dialog (in GUI mode) or the first part of the variable name
+	 * 			(in headless mode or when using .properties file)
+	 * @param message the message to display next to the input field (in GUI mode) or the
+	 * 			second part of the variable name (in headless mode or when using .properties file)
+	 * @param defaultValue the optional default address as a String - if null is passed or an invalid 
+	 * 			address is given no default will be shown in dialog
+	 * @return the user-specified Address value
+	 * @throws CancelledException if the user hit the 'cancel' button in GUI mode
+	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid Address
+	 * 			specified in the .properties file
+	 */
+	public Address askAddress(String title, String message, String defaultValue)
+			throws CancelledException {
 
 		String key = join(title, message);
-		Address existingValue = loadAskValue(this::parseAddress, key);
+
+		Address defaultAddr = null;
+		if (defaultValue != null) {
+			defaultAddr = currentProgram.getAddressFactory().getAddress(defaultValue);
+		}
+
+		// if defaultAddr is null then it assumes no default value
+		Address existingValue = loadAskValue(defaultAddr, this::parseAddress, key);
 		if (isRunningHeadless()) {
 			return existingValue;
 		}
@@ -2634,7 +2688,12 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *
 	 * @param title the title of the pop-up dialog (in GUI mode) or the variable name (in
 	 * 			headless mode)
-	 * @return the user-specified Program
+	 * @return the user-selected Program with this script as the consumer or null if a program was 
+	 * not selected.  NOTE: It is very important that the program instance returned by this method 
+	 * ALWAYS be properly released when no longer needed.  The script which invoked this method must be
+	 * specified as the consumer upon release (i.e., {@code program.release(this) } - failure to 
+	 * properly release the program may result in improper project disposal.  If the program was 
+	 * opened by the tool, the tool will be a second consumer responsible for its own release.
 	 * @throws VersionException if the Program is out-of-date from the version of GHIDRA
 	 * @throws IOException if there is an error accessing the Program's DomainObject
 	 * @throws CancelledException if the operation is cancelled
@@ -2644,33 +2703,34 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	public Program askProgram(String title)
 			throws VersionException, IOException, CancelledException {
 
-		DomainFile existingValue = loadAskValue(this::parseDomainFile, title);
-		if (isRunningHeadless()) {
-			return (Program) existingValue.getDomainObject(this, false, false, monitor);
+		DomainFile choice = loadAskValue(this::parseDomainFile, title);
+		if (!isRunningHeadless()) {
+			choice = doAsk(Program.class, title, "", choice, lastValue -> {
+
+				DataTreeDialog dtd = new DataTreeDialog(null, title, DataTreeDialog.OPEN);
+				dtd.show();
+				if (dtd.wasCancelled()) {
+					throw new CancelledException();
+				}
+
+				return dtd.getDomainFile();
+			});
 		}
-
-		DomainFile choice = doAsk(Program.class, title, "", existingValue, lastValue -> {
-
-			DataTreeDialog dtd = new DataTreeDialog(null, title, DataTreeDialog.OPEN);
-			dtd.show();
-			if (dtd.wasCancelled()) {
-				throw new CancelledException();
-			}
-
-			return dtd.getDomainFile();
-		});
 
 		if (choice == null) {
 			return null;
 		}
 
+		Program p = (Program) choice.getDomainObject(this, false, false, monitor);
+
 		PluginTool tool = state.getTool();
 		if (tool == null) {
-			return (Program) choice.getDomainObject(this, false, false, monitor);
+			return p;
 		}
 
 		ProgramManager pm = tool.getService(ProgramManager.class);
-		return pm.openProgram(choice);
+		pm.openProgram(p);
+		return p;
 	}
 
 	/**
@@ -2719,10 +2779,10 @@ public abstract class GhidraScript extends FlatProgramAPI {
 	 *
 	 * @param title the title of the pop-up dialog (in GUI mode) or the variable name (in headless
 	 * 		mode or when using .properties file)
-	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	domain
-	 * 			file specified in the .properties file
 	 * @return the user-selected domain file
 	 * @throws CancelledException if the operation is cancelled
+	 * @throws IllegalArgumentException if in headless mode, there was a missing or invalid	domain
+	 * 			file specified in the .properties file
 	 */
 	public DomainFile askDomainFile(String title) throws CancelledException {
 
@@ -2928,6 +2988,55 @@ public abstract class GhidraScript extends FlatProgramAPI {
 		});
 
 		return choice;
+	}
+
+	/**
+	 * Returns a {@link Password}, using the String input parameters for guidance. This method can
+	 * only be used in headed mode.
+	 * <p>
+	 * In the GUI environment, this method displays a password popup dialog that prompts the user
+	 * for a password. There is no pre-population of the input. If the user cancels the dialog, it 
+	 * is immediately disposed, and any input to that dialog is cleared from memory. If the user 
+	 * completes the dialog, then the password is returned in a wrapped buffer. The buffer can be 
+	 * cleared by calling {@link Password#close()}; however, it is meant to be used in a 
+	 * {@code try-with-resources} block. The pattern does not guarantee protection of the password, 
+	 * but it will help you avoid some typical pitfalls:
+	 * 
+	 * <pre>
+	 * String user = askString("Login", "Username:");
+	 * Project project;
+	 * try (Password password = askPassword("Login", "Password:")) {
+	 * 	project = doLoginAndOpenProject(user, password.getPasswordChars());
+	 * }
+	 * </pre>
+	 * 
+	 * The buffer will be zero-filled upon leaving the {@code try-with-resources} block. If, in the
+	 * sample, the {@code doLoginAndOpenProject} method or any part of its implementation needs to
+	 * retain the password, it must make a copy. It is then the implementation's responsibility to
+	 * protect its copy.
+	 * 
+	 * @param title the title of the dialog
+	 * @param prompt the prompt to the left of the input field, or null to display "Password:"
+	 * @return the password
+	 * @throws CancelledException if the user cancels
+	 * @throws ImproperUseException if in headless mode
+	 */
+	public Password askPassword(String title, String prompt) throws CancelledException {
+		if (isRunningHeadless()) {
+			throw new ImproperUseException(
+				"The askPassword() method can only be used when running headed Ghidra.");
+		}
+		PasswordDialog dialog = new PasswordDialog(title, null, null, prompt, null, null);
+		try {
+			state.getTool().showDialog(dialog);
+			if (!dialog.okWasPressed()) {
+				throw new CancelledException("User cancelled password prompt.");
+			}
+			return Password.wrap(dialog.getPassword());
+		}
+		finally {
+			dialog.dispose();
+		}
 	}
 
 	/**

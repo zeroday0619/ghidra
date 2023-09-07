@@ -373,7 +373,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 	private class ProgramTransactionListener implements TransactionListener {
 
 		@Override
-		public void transactionStarted(DomainObjectAdapterDB domainObj, Transaction tx) {
+		public void transactionStarted(DomainObjectAdapterDB domainObj, TransactionInfo tx) {
 			// ignore
 		}
 
@@ -432,7 +432,7 @@ public class MyProgramChangesDisplayPlugin extends ProgramPlugin implements Doma
 		@Override
 		public void run(TaskMonitor monitor) throws CancelledException {
 
-			monitor.checkCanceled(); // plugin was shut down while we were scheduled
+			monitor.checkCancelled(); // plugin was shut down while we were scheduled
 
 			ProgramChangeSet changes = null;
 			try {

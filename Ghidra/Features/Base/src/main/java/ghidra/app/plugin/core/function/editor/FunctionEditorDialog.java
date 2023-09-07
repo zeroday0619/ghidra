@@ -25,6 +25,7 @@ import javax.swing.*;
 import javax.swing.border.Border;
 import javax.swing.border.CompoundBorder;
 import javax.swing.event.*;
+import javax.swing.plaf.TableUI;
 import javax.swing.table.TableCellEditor;
 
 import org.apache.commons.lang3.StringUtils;
@@ -38,7 +39,7 @@ import docking.widgets.label.GLabel;
 import docking.widgets.table.*;
 import generic.theme.GIcon;
 import generic.theme.GThemeDefaults.Colors;
-import generic.theme.GThemeDefaults.Colors.*;
+import generic.theme.GThemeDefaults.Colors.Palette;
 import generic.util.WindowUtilities;
 import ghidra.app.services.DataTypeManagerService;
 import ghidra.app.util.ToolTipUtils;
@@ -46,6 +47,7 @@ import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.app.util.viewer.field.ListingColors.FunctionColors;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.data.DataType;
+import ghidra.program.model.data.VoidDataType;
 import ghidra.program.model.listing.Function;
 import ghidra.program.model.listing.VariableStorage;
 import ghidra.program.model.symbol.ExternalLocation;
@@ -211,7 +213,7 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 		thunkedText.setEditable(false);
 		DockingUtils.setTransparent(thunkedText);
 		CompoundBorder border =
-			BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(Java.BORDER),
+			BorderFactory.createCompoundBorder(BorderFactory.createLineBorder(Colors.BORDER),
 				BorderFactory.createEmptyBorder(0, 5, 0, 5));
 		thunkedText.setBorder(border);
 		thunkedText.setForeground(FunctionColors.THUNK);
@@ -423,15 +425,7 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 		paramTableModel = new ParameterTableModel(model);
 		parameterTable = new ParameterTable(paramTableModel);
 		selectionListener = e -> model.setSelectedParameterRow(parameterTable.getSelectedRows());
-		parameterTable.getSelectionModel().addListSelectionListener(selectionListener);
-		// set the preferred viewport height smaller that the button panel, otherwise it is huge!
-		parameterTable.setPreferredScrollableViewportSize(new Dimension(600, 100));
-		parameterTable.setDefaultEditor(DataType.class,
-			new ParameterDataTypeCellEditor(this, service));
-		parameterTable.setDefaultRenderer(DataType.class, new ParameterDataTypeCellRenderer());
-		parameterTable.setDefaultEditor(VariableStorage.class, new StorageTableCellEditor(model));
-		parameterTable.setDefaultRenderer(VariableStorage.class, new VariableStorageCellRenderer());
-		parameterTable.setDefaultRenderer(String.class, new VariableStringCellRenderer());
+
 		JScrollPane tableScroll = new JScrollPane(parameterTable);
 		panel.add(tableScroll, BorderLayout.CENTER);
 		panel.add(buildButtonPanel(), BorderLayout.EAST);
@@ -658,13 +652,12 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 			DataType dataType = (DataType) value;
 			Color color = isSelected ? table.getSelectionForeground() : table.getForeground();
 			if (!tableModel.isCellEditable(row, column)) {
-				color =
-					isSelected ? Tables.FG_UNEDITABLE_SELECTED : Tables.FG_UNEDITABLE_UNSELECTED;
+				color = getUneditableForegroundColor(isSelected);
 			}
 			if (dataType != null) {
 				setText(dataType.getName());
 				if (dataType.isNotYetDefined()) {
-					color = isSelected ? Tables.FG_ERROR_SELECTED : Tables.FG_ERROR_UNSELECTED;
+					color = getErrorForegroundColor(isSelected);
 				}
 				String toolTipText = ToolTipUtils.getToolTipText(dataType);
 				String headerText = "<HTML><b>" +
@@ -686,15 +679,43 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 		private FocusListener focusListener = new FocusAdapter() {
 			@Override
 			public void focusLost(FocusEvent e) {
-				e.getComponent().removeFocusListener(this);
-				if (cellEditor != null) {
-					cellEditor.stopCellEditing();
+				Component component = e.getComponent();
+				Component opposite = e.getOppositeComponent();
+				if (opposite == null) {
+					return; // this implies a non-Java app has taken focus
+				}
+				if (!SwingUtilities.isDescendingFrom(opposite, component)) {
+					component.removeFocusListener(this);
+					if (cellEditor != null) {
+						cellEditor.stopCellEditing();
+					}
+				}
+				else {
+					// One of the editor's internal components has gotten focus.  Listen to that as
+					// well to know when to stop the edit.
+					opposite.removeFocusListener(this);
+					opposite.addFocusListener(this);
 				}
 			}
 		};
 
 		ParameterTable(ParameterTableModel model) {
 			super(model);
+		}
+
+		@Override
+		public void setUI(TableUI ui) {
+			super.setUI(ui);
+
+			getSelectionModel().addListSelectionListener(selectionListener);
+			// set the preferred viewport height smaller that the button panel, otherwise it is huge!
+			setPreferredScrollableViewportSize(new Dimension(600, 100));
+			setDefaultEditor(DataType.class,
+				new ParameterDataTypeCellEditor(FunctionEditorDialog.this, service));
+			setDefaultRenderer(DataType.class, new ParameterDataTypeCellRenderer());
+			setDefaultEditor(VariableStorage.class, new StorageTableCellEditor(model));
+			setDefaultRenderer(VariableStorage.class, new VariableStorageCellRenderer());
+			setDefaultRenderer(String.class, new VariableStringCellRenderer());
 		}
 
 		@Override
@@ -726,8 +747,15 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 						setStatusText("Return name may not be modified");
 					}
 					else if ("Storage".equals(getColumnName(column))) {
-						setStatusText(
-							"Enable 'Use Custom Storage' to allow editing of Parameter and Return Storage");
+						boolean blockVoidStorageEdit = (rowData.getIndex() == null) &&
+							VoidDataType.isVoidDataType(rowData.getFormalDataType());
+						if (!blockVoidStorageEdit) {
+							setStatusText(
+								"Enable 'Use Custom Storage' to allow editing of Parameter and Return Storage");
+						}
+						else {
+							setStatusText("Void return storage may not be modified");
+						}
 					}
 				}
 			}
@@ -753,8 +781,7 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 				boolean isInvalidStorage =
 					!storage.isValid() || rowData.getFormalDataType().getLength() != storage.size();
 				if (isInvalidStorage) {
-					setForeground(
-						isSelected ? Tables.FG_ERROR_SELECTED : Tables.FG_ERROR_UNSELECTED);
+					setForeground(getErrorForegroundColor(isSelected));
 					setToolTipText("Invalid Parameter Storage");
 				}
 				else {
@@ -789,8 +816,7 @@ public class FunctionEditorDialog extends DialogComponentProvider implements Mod
 
 			ParameterTableModel tableModel = (ParameterTableModel) table.getModel();
 			if (!tableModel.isCellEditable(row, column)) {
-				setForeground(
-					isSelected ? Tables.FG_UNEDITABLE_SELECTED : Tables.FG_UNEDITABLE_UNSELECTED);
+				setForeground(getUneditableForegroundColor(isSelected));
 			}
 			else {
 				if (isSelected) {

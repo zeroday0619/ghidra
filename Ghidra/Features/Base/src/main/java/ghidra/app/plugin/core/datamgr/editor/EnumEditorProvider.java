@@ -27,9 +27,9 @@ import javax.swing.table.TableCellEditor;
 
 import org.apache.commons.lang3.StringUtils;
 
-import docking.ActionContext;
-import docking.ComponentProvider;
+import docking.*;
 import docking.action.*;
+import docking.action.builder.ToggleActionBuilder;
 import docking.widgets.OptionDialog;
 import generic.theme.GIcon;
 import generic.theme.GThemeDefaults.Colors.Messages;
@@ -54,6 +54,10 @@ import util.CollectionUtils;
  */
 public class EnumEditorProvider extends ComponentProviderAdapter
 		implements ChangeListener, EditorProvider {
+
+	public static final String ACTION_NAME_ADD = "Add Enum Value";
+	public static final String ACTION_NAME_APPLY = "Apply Enum Changes";
+	public static final String ACTION_NAME_DELETE = "Delete Enum Value";
 
 	static final Icon EDITOR_ICON = new GIcon("icon.plugin.enum.editor.provider");
 	private final static Icon APPLY_ICON = new GIcon("icon.plugin.enum.editor.apply");
@@ -80,6 +84,7 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 	private CategoryPath originalCategoryPath;
 	private Enum originalEnum;
 	private long originalEnumID = -1;
+	private ToggleDockingAction hexDisplayAction;
 
 	/**
 	 * Construct a new enum editor provider.
@@ -150,7 +155,7 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 
 	@Override
 	public ActionContext getActionContext(MouseEvent event) {
-		return new ActionContext(this, editorPanel.getTable());
+		return new DefaultActionContext(this, editorPanel.getTable());
 	}
 
 	@Override
@@ -276,7 +281,15 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 	}
 
 	private void createActions() {
-		addAction = new EnumPluginAction("Add Enum Value", e -> editorPanel.addEntry());
+		hexDisplayAction = new ToggleActionBuilder("Toggle Hex Mode", plugin.getName())
+				.menuPath("Show Enum Values in Hex")
+				.description("Toggles Enum value column to show values in hex or decimal")
+				.keyBinding("Shift-H")
+				.selected(true)
+				.onAction(c -> editorPanel.setHexDisplayMode(hexDisplayAction.isSelected()))
+				.buildAndInstallLocal(this);
+
+		addAction = new EnumPluginAction(ACTION_NAME_ADD, e -> editorPanel.addEntry());
 		addAction.setEnabled(true);
 		String editGroup = "Edit";
 		addAction.setPopupMenuData(new MenuData(new String[] { "Add" }, ADD_ICON, editGroup));
@@ -284,14 +297,14 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 		addAction.setDescription("Add a new enum entry");
 
 		deleteAction =
-			new EnumPluginAction("Delete Enum Value", e -> editorPanel.deleteSelectedEntries());
+			new EnumPluginAction(ACTION_NAME_DELETE, e -> editorPanel.deleteSelectedEntries());
 		deleteAction.setEnabled(false);
 		deleteAction
 				.setPopupMenuData(new MenuData(new String[] { "Delete" }, DELETE_ICON, editGroup));
 		deleteAction.setToolBarData(new ToolBarData(DELETE_ICON, editGroup));
 		deleteAction.setDescription("Delete the selected enum entries");
 
-		applyAction = new EnumPluginAction("Apply Enum Changes", e -> applyChanges());
+		applyAction = new EnumPluginAction(ACTION_NAME_APPLY, e -> applyChanges());
 		applyAction.setEnabled(false);
 		String firstGroup = "ApplyChanges";
 		applyAction.setToolBarData(new ToolBarData(APPLY_ICON, firstGroup));
@@ -444,7 +457,7 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 	}
 
 	private void applyName(Enum newEnuum) {
-		String editorName = editorPanel.getEnumName();
+		String editorName = editorPanel.getEnumName().trim();
 		if (originalEnumName.equals(editorName)) {
 			return; // nothing to do
 		}
@@ -699,10 +712,11 @@ public class EnumEditorProvider extends ComponentProviderAdapter
 	}
 
 	private class EnumPluginAction extends DockingAction {
-		private final ActionListener listener;
+		private ActionListener listener;
 
 		EnumPluginAction(String name, ActionListener listener) {
-			super(name, plugin.getName());
+			super(DataTypeEditorManager.EDIT_ACTION_PREFIX + name, plugin.getName(),
+				KeyBindingType.SHARED);
 			this.listener = listener;
 			setHelpLocation(new HelpLocation(HELP_TOPIC, name));
 		}

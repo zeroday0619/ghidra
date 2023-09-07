@@ -17,13 +17,16 @@
 #include "filemanage.hh"
 #include <csignal>
 
+extern FILE *sleighin;		// Global pointer to file for lexer
+extern int sleighlex_destroy(void);
+
+namespace ghidra {
+
 SleighCompile *slgh;		// Global pointer to sleigh object for use with parser
 #ifdef YYDEBUG
-extern int yydebug;		// Global debugging state for parser
+extern int sleighdebug;		// Global debugging state for parser
 #endif
-extern FILE *yyin;		// Global pointer to file for lexer
-extern int yyparse(void);
-extern int yylex_destroy(void);
+extern int sleighparse(void);
 
 /// This must be constructed with the \e main section of p-code, which can contain no p-code
 /// \param rtl is the \e main section of p-code
@@ -785,6 +788,9 @@ void ConsistencyChecker::printOpName(ostream &s,OpTpl *op)
   case CPUI_POPCOUNT:
     s << "Count bits(popcount)";
     break;
+  case CPUI_LZCOUNT:
+    s << "Count leading zero bits(lzcount)";
+    break;
   default:
     break;
   }
@@ -1004,7 +1010,7 @@ bool ConsistencyChecker::checkSectionTruncations(Constructor *ct,ConstructTpl *c
 bool ConsistencyChecker::checkSubtable(SubtableSymbol *sym)
 
 {
-  int4 tablesize = 0;
+  int4 tablesize = -1;
   int4 numconstruct = sym->getNumConstructors();
   Constructor *ct;
   bool testresult = true;
@@ -1033,9 +1039,9 @@ bool ConsistencyChecker::checkSubtable(SubtableSymbol *sym)
       }
       seennonemptyexport = true;
       int4 exsize = recoverSize(exportres->getSize(),ct);
-      if (tablesize == 0)
+      if (tablesize == -1)
 	tablesize = exsize;
-      if ((exsize!=0)&&(exsize != tablesize)) {
+      if (exsize != tablesize) {
 	ostringstream msg;
 	msg << "Table '" << sym->getName() << "' has inconsistent export size; ";
 	msg << "Constructor starting at line " << dec << ct->getLineno() << " is first conflict";
@@ -3576,15 +3582,15 @@ int4 SleighCompile::run_compilation(const string &filein,const string &fileout)
 {
   parseFromNewFile(filein);
   slgh = this;		// Set global pointer up for parser
-  yyin = fopen(filein.c_str(),"r");	// Open the file for the lexer
-  if (yyin == (FILE *)0) {
+  sleighin = fopen(filein.c_str(),"r");	// Open the file for the lexer
+  if (sleighin == (FILE *)0) {
     cerr << "Unable to open specfile: " << filein << endl;
     return 2;
   }
 
   try {
-    int4 parseres = yyparse();	// Try to parse
-    fclose(yyin);
+    int4 parseres = sleighparse();	// Try to parse
+    fclose(sleighin);
     if (parseres==0)
       process();	// Do all the post-processing
     if ((parseres==0)&&(numErrors()==0)) { // If no errors
@@ -3601,7 +3607,7 @@ int4 SleighCompile::run_compilation(const string &filein,const string &fileout)
       cerr << "No output produced" <<endl;
       return 2;
     }
-    yylex_destroy();		// Make sure lexer is reset so we can parse multiple files
+    sleighlex_destroy(); // Make sure lexer is reset so we can parse multiple files
   } catch(LowlevelError &err) {
     cerr << "Unrecoverable error: " << err.explain << endl;
     return 2;
@@ -3711,15 +3717,19 @@ static void segvHandler(int sig) {
   exit(1);			// Just die - prevents OS from popping-up a dialog
 }
 
+} // End namespace ghidra
+
 int main(int argc,char **argv)
 
 {
+  using namespace ghidra;
+
   int4 retval = 0;
 
   signal(SIGSEGV, &segvHandler); // Exit on SEGV errors
 
 #ifdef YYDEBUG
-  yydebug = 0;
+  sleighdebug = 0;
 #endif
 
   if (argc < 2) {
@@ -3786,7 +3796,7 @@ int main(int argc,char **argv)
       caseSensitiveRegisterNames = true;
 #ifdef YYDEBUG
     else if (argv[i][1] == 'x')
-      yydebug = 1;		// Debug option
+      sleighdebug = 1;		// Debug option
 #endif
     else {
       cerr << "Unknown option: " << argv[i] << endl;

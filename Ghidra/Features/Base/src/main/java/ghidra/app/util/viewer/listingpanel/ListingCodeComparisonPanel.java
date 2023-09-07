@@ -28,6 +28,7 @@ import docking.*;
 import docking.action.*;
 import docking.menu.ActionState;
 import docking.menu.MultiStateDockingAction;
+import docking.options.OptionsService;
 import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.fieldpanel.field.Field;
@@ -43,14 +44,13 @@ import ghidra.app.plugin.core.codebrowser.MarkerServiceBackgroundColorModel;
 import ghidra.app.plugin.core.codebrowser.hover.*;
 import ghidra.app.plugin.core.marker.MarkerManager;
 import ghidra.app.services.*;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.SymbolPath;
 import ghidra.app.util.viewer.format.*;
 import ghidra.app.util.viewer.util.*;
 import ghidra.framework.options.*;
 import ghidra.framework.plugintool.PluginTool;
 import ghidra.framework.plugintool.ServiceProviderDecorator;
-import ghidra.framework.plugintool.util.OptionsService;
 import ghidra.program.model.address.*;
 import ghidra.program.model.correlate.HashedFunctionAddressCorrelation;
 import ghidra.program.model.listing.*;
@@ -308,17 +308,17 @@ public class ListingCodeComparisonPanel
 	 * @param leftHighlightProvider the highlight provider for the left side's listing.
 	 * @param rightHighlightProvider the highlight provider for the right side's listing.
 	 */
-	public void addHighlightProviders(HighlightProvider leftHighlightProvider,
-			HighlightProvider rightHighlightProvider) {
+	public void addHighlightProviders(ListingHighlightProvider leftHighlightProvider,
+			ListingHighlightProvider rightHighlightProvider) {
 		addLeftHighlightProvider(leftHighlightProvider);
 		addRightHighlightProvider(rightHighlightProvider);
 	}
 
-	private void addLeftHighlightProvider(HighlightProvider leftHighlightProvider) {
+	private void addLeftHighlightProvider(ListingHighlightProvider leftHighlightProvider) {
 		listingPanels[LEFT].getFormatManager().addHighlightProvider(leftHighlightProvider);
 	}
 
-	private void addRightHighlightProvider(HighlightProvider rightHighlightProvider) {
+	private void addRightHighlightProvider(ListingHighlightProvider rightHighlightProvider) {
 		listingPanels[RIGHT].getFormatManager().addHighlightProvider(rightHighlightProvider);
 	}
 
@@ -328,17 +328,17 @@ public class ListingCodeComparisonPanel
 	 * @param leftHighlightProvider the highlight provider for the left side's listing.
 	 * @param rightHighlightProvider the highlight provider for the right side's listing.
 	 */
-	public void removeHighlightProviders(HighlightProvider leftHighlightProvider,
-			HighlightProvider rightHighlightProvider) {
+	public void removeHighlightProviders(ListingHighlightProvider leftHighlightProvider,
+			ListingHighlightProvider rightHighlightProvider) {
 		removeLeftHighlightProvider(leftHighlightProvider);
 		removeRightHighlightProvider(rightHighlightProvider);
 	}
 
-	private void removeLeftHighlightProvider(HighlightProvider leftHighlightProvider) {
+	private void removeLeftHighlightProvider(ListingHighlightProvider leftHighlightProvider) {
 		listingPanels[LEFT].getFormatManager().removeHighlightProvider(leftHighlightProvider);
 	}
 
-	private void removeRightHighlightProvider(HighlightProvider rightHighlightProvider) {
+	private void removeRightHighlightProvider(ListingHighlightProvider rightHighlightProvider) {
 		listingPanels[RIGHT].getFormatManager().removeHighlightProvider(rightHighlightProvider);
 	}
 
@@ -1561,8 +1561,8 @@ public class ListingCodeComparisonPanel
 		if (programs[LEFT] != null) {
 			AddressIndexMap indexMap = listingPanels[LEFT].getAddressIndexMap();
 			listingPanels[LEFT].getFieldPanel()
-					.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
-						markerManagers[LEFT], programs[LEFT], indexMap));
+				.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
+					markerManagers[LEFT], programs[LEFT], indexMap));
 			unmatchedCodeMarkers[LEFT] =
 				markerManagers[LEFT].createAreaMarker("Listing1 Unmatched Code",
 					"Instructions that are not matched to an instruction in the other function.",
@@ -1575,8 +1575,8 @@ public class ListingCodeComparisonPanel
 		if (programs[RIGHT] != null) {
 			AddressIndexMap rightIndexMap = listingPanels[RIGHT].getAddressIndexMap();
 			listingPanels[RIGHT].getFieldPanel()
-					.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
-						markerManagers[RIGHT], programs[RIGHT], rightIndexMap));
+				.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
+					markerManagers[RIGHT], programs[RIGHT], rightIndexMap));
 			unmatchedCodeMarkers[RIGHT] =
 				markerManagers[RIGHT].createAreaMarker("Listing2 Unmatched Code",
 					"Instructions that are not matched to an instruction in the other function.",
@@ -1676,8 +1676,8 @@ public class ListingCodeComparisonPanel
 		indexMaps[LEFT] = new AddressIndexMap(addressSets[LEFT]);
 		markerManagers[LEFT].getOverviewProvider().setProgram(getLeftProgram(), indexMaps[LEFT]);
 		listingPanels[LEFT].getFieldPanel()
-				.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(markerManagers[LEFT],
-					programs[LEFT], indexMaps[LEFT]));
+			.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(markerManagers[LEFT],
+				programs[LEFT], indexMaps[LEFT]));
 	}
 
 	private void updateRightAddressSet(Function rightFunction) {
@@ -1693,8 +1693,8 @@ public class ListingCodeComparisonPanel
 		indexMaps[RIGHT] = new AddressIndexMap(addressSets[RIGHT]);
 		markerManagers[RIGHT].getOverviewProvider().setProgram(getRightProgram(), indexMaps[RIGHT]);
 		listingPanels[RIGHT].getFieldPanel()
-				.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
-					markerManagers[RIGHT], programs[RIGHT], indexMaps[RIGHT]));
+			.setBackgroundColorModel(new MarkerServiceBackgroundColorModel(
+				markerManagers[RIGHT], programs[RIGHT], indexMaps[RIGHT]));
 	}
 
 	@Override
@@ -2085,18 +2085,18 @@ public class ListingCodeComparisonPanel
 
 		Object leftMarginContext = getContextForMarginPanels(leftPanel, event);
 		if (leftMarginContext != null) {
-			return new ActionContext(provider).setContextObject(leftMarginContext);
+			return new DefaultActionContext(provider).setContextObject(leftMarginContext);
 		}
 		Object rightMarginContext = getContextForMarginPanels(rightPanel, event);
 		if (rightMarginContext != null) {
-			return new ActionContext(provider).setContextObject(rightMarginContext);
+			return new DefaultActionContext(provider).setContextObject(rightMarginContext);
 		}
 
 		Object source = event.getSource();
 		if (source instanceof FieldHeaderComp) {
 			FieldHeaderLocation fieldHeaderLocation =
 				leftPanel.getFieldHeader().getFieldHeaderLocation(event.getPoint());
-			return new ActionContext(provider).setContextObject(fieldHeaderLocation);
+			return new DefaultActionContext(provider).setContextObject(fieldHeaderLocation);
 		}
 
 		Navigatable focusedNavigatable = dualListingPanel.getFocusedNavigatable();
@@ -2689,13 +2689,15 @@ public class ListingCodeComparisonPanel
 			// Are we on a marker margin of the left listing? Return that margin's context.
 			Object sourceMarginContextObject = getContextObjectForMarginPanels(sourcePanel, event);
 			if (sourceMarginContextObject != null) {
-				return new ActionContext(provider).setContextObject(sourceMarginContextObject);
+				return new DefaultActionContext(provider)
+					.setContextObject(sourceMarginContextObject);
 			}
 			// Are we on a marker margin of the right listing? Return that margin's context.
 			Object destinationMarginContextObject =
 				getContextObjectForMarginPanels(destinationPanel, event);
 			if (destinationMarginContextObject != null) {
-				return new ActionContext(provider).setContextObject(destinationMarginContextObject);
+				return new DefaultActionContext(provider)
+					.setContextObject(destinationMarginContextObject);
 			}
 
 			// If the action is on the Field Header of the left listing panel return an
@@ -2703,7 +2705,7 @@ public class ListingCodeComparisonPanel
 			if (sourceComponent instanceof FieldHeaderComp) {
 				FieldHeaderLocation fieldHeaderLocation =
 					sourcePanel.getFieldHeader().getFieldHeaderLocation(event.getPoint());
-				return new ActionContext(provider).setContextObject(fieldHeaderLocation);
+				return new DefaultActionContext(provider).setContextObject(fieldHeaderLocation);
 			}
 		}
 		return null;

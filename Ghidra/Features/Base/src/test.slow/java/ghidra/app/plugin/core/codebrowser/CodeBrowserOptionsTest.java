@@ -197,6 +197,7 @@ public class CodeBrowserOptionsTest extends AbstractGhidraHeadedIntegrationTest 
 		assertEquals("Pre-comments Field", groups[idx++]);
 		assertEquals("Register Field", groups[idx++]);
 		assertEquals("Selection Colors", groups[idx++]);
+		assertEquals("Templates", groups[idx++]);
 		assertEquals("XREFs Field", groups[idx++]);
 	}
 
@@ -728,12 +729,12 @@ public class CodeBrowserOptionsTest extends AbstractGhidraHeadedIntegrationTest 
 
 		options.setBoolean(names.get(0), false);
 		cb.updateNow();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 
 		assertFalse(cb.goToField(addr("0x10048a3"), "Label", 0, 0));
 		options.setBoolean(names.get(0), true);
 		cb.updateNow();
-		waitForPostedSwingRunnables();
+		waitForSwing();
 		assertTrue(cb.goToField(addr("0x10048a3"), "Label", 0, 0));
 		ListingTextField btf = (ListingTextField) cb.getCurrentField();
 		assertEquals("doStuff", btf.getText());

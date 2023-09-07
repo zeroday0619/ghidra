@@ -384,6 +384,13 @@ public class DataPlugin extends Plugin implements DataService {
 			return true;
 		}
 
+		if (newSize <= 0) {
+			tool.setStatusInfo(
+				"Invalid data location.  Unable to resolve data length at " + start + " for " +
+					dataType.getName());
+			return false;
+		}
+
 		Address end = null;
 		try {
 			end = start.addNoWrap(newSize - 1);
@@ -491,17 +498,8 @@ public class DataPlugin extends Plugin implements DataService {
 			return newSize;
 		}
 
-		if (dataType instanceof Dynamic || dataType instanceof FactoryDataType) {
-			MemoryBlock block = program.getMemory().getBlock(start);
-			if (block == null || !block.isInitialized()) {
-				tool.setStatusInfo(
-					dataType.getName() + " may only be applied on initialized memory");
-				return -1;
-			}
-		}
-
 		DataTypeInstance dataTypeInstance = DataTypeInstance.getDataTypeInstance(dataType,
-			new DumbMemBufferImpl(program.getMemory(), start));
+			new DumbMemBufferImpl(program.getMemory(), start), false);
 		if (dataTypeInstance == null) {
 			tool.setStatusInfo("Unallowed data type at " + start + ": " + dataType.getName());
 			return -1;

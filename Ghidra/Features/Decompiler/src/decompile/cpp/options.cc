@@ -18,6 +18,8 @@
 #include "flow.hh"
 #include "printc.hh"
 
+namespace ghidra {
+
 ElementId ELEM_ALIASBLOCK = ElementId("aliasblock",174);
 ElementId ELEM_ALLOWCONTEXTSET = ElementId("allowcontextset",175);
 ElementId ELEM_ANALYZEFORLOOPS = ElementId("analyzeforloops",176);
@@ -52,9 +54,12 @@ ElementId ELEM_PARAM3 = ElementId("param3",204);
 ElementId ELEM_PROTOEVAL = ElementId("protoeval",205);
 ElementId ELEM_SETACTION = ElementId("setaction",206);
 ElementId ELEM_SETLANGUAGE = ElementId("setlanguage",207);
+ElementId ELEM_SPLITDATATYPE = ElementId("splitdatatype",270);
 ElementId ELEM_STRUCTALIGN = ElementId("structalign",208);
 ElementId ELEM_TOGGLERULE = ElementId("togglerule",209);
 ElementId ELEM_WARNING = ElementId("warning",210);
+ElementId ELEM_JUMPTABLEMAX = ElementId("jumptablemax",271);
+ElementId ELEM_NANIGNORE = ElementId("nanignore",272);
 
 /// If the parameter is "on" return \b true, if "off" return \b false.
 /// Any other value causes an exception.
@@ -117,11 +122,14 @@ OptionDatabase::OptionDatabase(Architecture *g)
   registerOption(new OptionAllowContextSet());
   registerOption(new OptionSetAction());
   registerOption(new OptionSetLanguage());
+  registerOption(new OptionJumpTableMax());
   registerOption(new OptionJumpLoad());
   registerOption(new OptionToggleRule());
   registerOption(new OptionAliasBlock());
   registerOption(new OptionMaxInstruction());
   registerOption(new OptionNamespaceStrategy());
+  registerOption(new OptionSplitDatatypes());
+  registerOption(new OptionNanIgnore());
 }
 
 OptionDatabase::~OptionDatabase(void)
@@ -790,6 +798,26 @@ string OptionSetLanguage::apply(Architecture *glb,const string &p1,const string 
   return res;
 }
 
+/// \class OptionJumpTableMax
+/// \brief Set the maximum number of entries that can be recovered for a single jump table
+///
+/// This option is an unsigned integer value used during analysis of jump tables.  It serves as a
+/// sanity check that the recovered number of entries for a jump table is reasonable and
+/// also acts as a resource limit on the number of destination addresses that analysis will attempt
+/// to follow from a single indirect jump.
+string OptionJumpTableMax::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
+
+{
+  istringstream s(p1);
+  s.unsetf(ios::dec | ios::hex | ios::oct);
+  uint4 val = 0;
+  s >> val;
+  if (val==0)
+    throw ParseError("Must specify integer maximum");
+  glb->max_jumptable_size = val;
+  return "Maximum jumptable size set to "+p1;
+}
+
 /// \class OptionJumpLoad
 /// \brief Toggle whether the decompiler should try to recover the table used to evaluate a switch
 ///
@@ -917,3 +945,79 @@ string OptionNamespaceStrategy::apply(Architecture *glb,const string &p1,const s
   glb->print->setNamespaceStrategy(strategy);
   return "Namespace strategy set";
 }
+
+/// Possible value are:
+///   - (empty string) = 0
+///   - "struct"       = 1
+///   - "array"        = 2
+///   - "pointer"     = 4
+///
+/// \param val is the option string
+/// \return the corresponding configuration bit
+uint4 OptionSplitDatatypes::getOptionBit(const string &val)
+
+{
+  if (val.size() == 0) return 0;
+  if (val == "struct") return option_struct;
+  if (val == "array") return option_array;
+  if (val == "pointer") return option_pointer;
+  throw LowlevelError("Unknown data-type split option: "+val);
+}
+
+string OptionSplitDatatypes::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
+
+{
+  uint4 oldConfig = glb->split_datatype_config;
+  glb->split_datatype_config = getOptionBit(p1);
+  glb->split_datatype_config |= getOptionBit(p2);
+  glb->split_datatype_config |= getOptionBit(p3);
+
+  if ((glb->split_datatype_config & (option_struct | option_array)) == 0) {
+    glb->allacts.toggleAction(glb->allacts.getCurrentName(),"splitcopy",false);
+    glb->allacts.toggleAction(glb->allacts.getCurrentName(),"splitpointer",false);
+  }
+  else {
+    bool pointers = (glb->split_datatype_config & option_pointer) != 0;
+    glb->allacts.toggleAction(glb->allacts.getCurrentName(),"splitcopy",true);
+    glb->allacts.toggleAction(glb->allacts.getCurrentName(),"splitpointer",pointers);
+  }
+
+  if (oldConfig == glb->split_datatype_config)
+    return "Split data-type configuration unchanged";
+  return "Split data-type configuration set";
+}
+
+string OptionNanIgnore::apply(Architecture *glb,const string &p1,const string &p2,const string &p3) const
+
+{
+  bool oldIgnoreAll = glb->nan_ignore_all;
+  bool oldIgnoreCompare = glb->nan_ignore_compare;
+
+  if (p1 == "none") {			// Don't ignore any NaN operation
+    glb->nan_ignore_all = false;
+    glb->nan_ignore_compare = false;
+  }
+  else if (p1 == "compare") {		// Ignore only NaN operations protecting floating-point comparisons
+    glb->nan_ignore_all = false;
+    glb->nan_ignore_compare = true;
+  }
+  else if (p1 == "all") {		// Ignore all NaN operations
+    glb->nan_ignore_all = true;
+    glb->nan_ignore_compare = true;
+  }
+  else {
+    throw LowlevelError("Unknown nanignore option: "+p1);
+  }
+  Action *root = glb->allacts.getCurrent();
+  if (!glb->nan_ignore_all && !glb->nan_ignore_compare) {
+    root->disableRule("ignorenan");
+  }
+  else {
+    root->enableRule("ignorenan");
+  }
+  if (oldIgnoreAll == glb->nan_ignore_all && oldIgnoreCompare == glb->nan_ignore_compare)
+    return "NaN ignore configuration unchanged";
+  return "Nan ignore configuration set to: " + p1;
+}
+
+} // End namespace ghidra

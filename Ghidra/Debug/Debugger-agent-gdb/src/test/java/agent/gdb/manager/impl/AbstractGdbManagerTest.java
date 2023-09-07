@@ -35,12 +35,11 @@ import org.junit.*;
 import agent.gdb.manager.*;
 import agent.gdb.manager.GdbManager.StepCmd;
 import agent.gdb.manager.breakpoint.GdbBreakpointInfo;
-import agent.gdb.pty.PtyFactory;
-import agent.gdb.pty.linux.LinuxPtyFactory;
 import generic.ULongSpan;
 import generic.ULongSpan.ULongSpanSet;
 import ghidra.async.AsyncReference;
 import ghidra.dbg.testutil.DummyProc;
+import ghidra.pty.PtyFactory;
 import ghidra.test.AbstractGhidraHeadlessIntegrationTest;
 import ghidra.util.Msg;
 import ghidra.util.SystemUtilities;
@@ -62,8 +61,7 @@ public abstract class AbstractGdbManagerTest extends AbstractGhidraHeadlessInteg
 	}
 
 	protected PtyFactory getPtyFactory() {
-		// TODO: Choose by host OS
-		return new LinuxPtyFactory();
+		return PtyFactory.local();
 	}
 
 	protected abstract CompletableFuture<Void> startManager(GdbManager manager);
@@ -167,10 +165,10 @@ public abstract class AbstractGdbManagerTest extends AbstractGhidraHeadlessInteg
 			waitOn(startManager(mgr));
 			GdbInferior inferior = mgr.currentInferior();
 			waitOn(inferior.fileExecAndSymbols("/usr/bin/echo"));
-			Map<String, GdbModule> modules = waitOn(inferior.listModules());
+			Map<String, GdbModule> modules = waitOn(inferior.listModules(false));
 			GdbModule modEcho = modules.get("/usr/bin/echo");
 			assertNotNull(modEcho);
-			Map<String, GdbModuleSection> sectionsEcho = waitOn(modEcho.listSections());
+			Map<String, GdbModuleSection> sectionsEcho = waitOn(modEcho.listSections(false));
 			GdbModuleSection secEchoText = sectionsEcho.get(".text");
 			assertNotNull(secEchoText);
 		}

@@ -37,7 +37,7 @@ import ghidra.app.nav.*;
 import ghidra.app.plugin.core.decompile.actions.*;
 import ghidra.app.services.*;
 import ghidra.app.util.HelpTopics;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.framework.model.*;
 import ghidra.framework.options.*;
 import ghidra.framework.plugintool.NavigatableComponentProviderAdapter;
@@ -176,8 +176,9 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	@Override
 	public void componentShown() {
 		if (program != null && currentLocation != null) {
+			ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 			ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
-			decompilerOptions.grabFromToolAndProgram(plugin, opt, program);
+			decompilerOptions.grabFromToolAndProgram(fieldOptions, opt, program);
 			controller.setOptions(decompilerOptions);
 			controller.display(program, currentLocation, null);
 		}
@@ -320,8 +321,9 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	private void doRefresh() {
+		ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 		ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
-		decompilerOptions.grabFromToolAndProgram(plugin, opt, program);
+		decompilerOptions.grabFromToolAndProgram(fieldOptions, opt, program);
 		controller.setOptions(decompilerOptions);
 		if (currentLocation != null) {
 			controller.refreshDisplay(program, currentLocation, null);
@@ -402,8 +404,9 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 		currentSelection = null;
 		if (program != null) {
 			program.addListener(this);
+			ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 			ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
-			decompilerOptions.grabFromToolAndProgram(plugin, opt, program);
+			decompilerOptions.grabFromToolAndProgram(fieldOptions, opt, program);
 		}
 	}
 
@@ -720,6 +723,7 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	private void initializeDecompilerOptions() {
+		ToolOptions fieldOptions = tool.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
 		ToolOptions opt = tool.getOptions(OPTIONS_TITLE);
 		HelpLocation helpLocation = new HelpLocation(HelpTopics.DECOMPILER, "GeneralOptions");
 		opt.setOptionsHelpLocation(helpLocation);
@@ -727,7 +731,7 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 				.setOptionsHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "AnalysisOptions"));
 		opt.getOptions("Display")
 				.setOptionsHelpLocation(new HelpLocation(HelpTopics.DECOMPILER, "DisplayOptions"));
-		decompilerOptions.registerOptions(plugin, opt, program);
+		decompilerOptions.registerOptions(fieldOptions, opt, program);
 
 		opt.addOptionsChangeListener(this);
 
@@ -1108,12 +1112,12 @@ public class DecompilerProvider extends NavigatableComponentProviderAdapter
 	}
 
 	@Override
-	public void removeHighlightProvider(HighlightProvider highlightProvider, Program p) {
+	public void removeHighlightProvider(ListingHighlightProvider highlightProvider, Program p) {
 		// currently unsupported
 	}
 
 	@Override
-	public void setHighlightProvider(HighlightProvider highlightProvider, Program p) {
+	public void setHighlightProvider(ListingHighlightProvider highlightProvider, Program p) {
 		// currently unsupported
 	}
 

@@ -37,10 +37,9 @@ import docking.widgets.EventTrigger;
 import docking.widgets.fieldpanel.FieldPanel;
 import docking.widgets.label.GDLabel;
 import docking.widgets.table.threaded.ThreadedTableModel;
-import generic.theme.GColor;
 import generic.theme.GIcon;
+import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.plugin.core.functioncompare.FunctionComparisonPanel;
-import ghidra.app.services.GoToService;
 import ghidra.app.util.viewer.listingpanel.ListingCodeComparisonPanel;
 import ghidra.app.util.viewer.listingpanel.ListingPanel;
 import ghidra.feature.vt.api.db.DeletedMatch;
@@ -79,8 +78,6 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 	public static final Icon FILTER_NOT_ACCEPTED_ICON =
 		new GIcon("icon.version.tracking.action.function.filter.not.accepted");
 	private static final String SHOW_COMPARE_ACTION_GROUP = "A9_ShowCompare"; // "A9_" forces to right of other dual view actions in toolbar.
-
-	private static final Color FG_ERROR = new GColor("color.fg.error");
 
 	private GhidraTable sourceFunctionsTable;
 	private GhidraTable destinationFunctionsTable;
@@ -361,7 +358,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		JPanel statusPanel = new JPanel(new BorderLayout());
 		statusLabel = new GDLabel(NO_ERROR_MESSAGE);
 		statusLabel.setHorizontalAlignment(SwingConstants.CENTER);
-		statusLabel.setForeground(FG_ERROR);
+		statusLabel.setForeground(Colors.ERROR);
 		statusLabel.addComponentListener(new ComponentAdapter() {
 			@Override
 			public void componentResized(ComponentEvent e) {
@@ -445,8 +442,6 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 
 	private JComponent createSourceFunctionPanel() {
 
-		GoToService goToService = tool.getService(GoToService.class);
-
 		Program sourceProgram = controller.getSourceProgram();
 		sourceFunctionsModel =
 			new VTFunctionAssociationTableModel(tool, controller, sourceProgram, true);
@@ -455,10 +450,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		sourceFunctionsTable.setName("SourceFunctionTable");
 		sourceFunctionsTable.setPreferenceKey(
 			"VTFunctionAssociationTableModel - Source Function Table");
-		if (goToService != null) {
-			sourceFunctionsTable.installNavigation(goToService,
-				goToService.getDefaultNavigatable());
-		}
+		sourceFunctionsTable.installNavigation(tool);
 		sourceFunctionsTable.setAutoLookupColumn(VTFunctionAssociationTableModel.NAME_COL);
 		sourceFunctionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
 		sourceFunctionsTable.setPreferredScrollableViewportSize(new Dimension(350, 150));
@@ -500,8 +492,6 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 
 	private JComponent createDestinationFunctionPanel() {
 
-		GoToService goToService = tool.getService(GoToService.class);
-
 		Program destinationProgram = controller.getDestinationProgram();
 		destinationFunctionsModel =
 			new VTFunctionAssociationTableModel(tool, controller, destinationProgram, false);
@@ -511,10 +501,7 @@ public class VTFunctionAssociationProvider extends ComponentProviderAdapter
 		destinationFunctionsTable.setName("DestinationFunctionTable");
 		destinationFunctionsTable.setPreferenceKey(
 			"VTFunctionAssociationTableModel - " + "Destination Function Table");
-		if (goToService != null) {
-			destinationFunctionsTable.installNavigation(goToService,
-				goToService.getDefaultNavigatable());
-		}
+		destinationFunctionsTable.installNavigation(tool);
 		destinationFunctionsTable.setAutoLookupColumn(VTFunctionAssociationTableModel.NAME_COL);
 		destinationFunctionsTable.setAutoResizeMode(JTable.AUTO_RESIZE_SUBSEQUENT_COLUMNS);
 		destinationFunctionsTable.setPreferredScrollableViewportSize(new Dimension(350, 150));

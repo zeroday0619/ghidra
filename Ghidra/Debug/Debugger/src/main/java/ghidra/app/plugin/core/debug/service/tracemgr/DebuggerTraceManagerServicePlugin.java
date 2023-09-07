@@ -21,6 +21,7 @@ import java.net.ConnectException;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import docking.ActionContext;
 import docking.action.DockingAction;
@@ -161,13 +162,13 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 		public TransactionEndFuture(Trace trace) {
 			this.trace = trace;
 			this.trace.addTransactionListener(this);
-			if (this.trace.getCurrentTransaction() == null) {
+			if (this.trace.getCurrentTransactionInfo() == null) {
 				complete(null);
 			}
 		}
 
 		@Override
-		public void transactionStarted(DomainObjectAdapterDB domainObj, Transaction tx) {
+		public void transactionStarted(DomainObjectAdapterDB domainObj, TransactionInfo tx) {
 		}
 
 		@Override
@@ -491,9 +492,8 @@ public class DebuggerTraceManagerServicePlugin extends Plugin
 			return false;
 		}
 
-		List<DomainFile> toOpen = Arrays.asList(data)
-				.stream()
-				.filter(f -> Trace.class.isAssignableFrom(f.getDomainObjectClass()))
+		List<DomainFile> toOpen = Stream.of(data)
+				.filter(f -> f != null && Trace.class.isAssignableFrom(f.getDomainObjectClass()))
 				.collect(Collectors.toList());
 		Collection<Trace> openTraces = openTraces(toOpen);
 

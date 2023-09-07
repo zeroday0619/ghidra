@@ -24,7 +24,7 @@ import docking.widgets.fieldpanel.field.*;
 import docking.widgets.fieldpanel.support.FieldLocation;
 import docking.widgets.fieldpanel.support.RowColLocation;
 import ghidra.GhidraOptions;
-import ghidra.app.util.HighlightProvider;
+import ghidra.app.util.ListingHighlightProvider;
 import ghidra.app.util.viewer.field.ListingColors.FunctionColors;
 import ghidra.app.util.viewer.format.FieldFormatModel;
 import ghidra.app.util.viewer.proxy.FunctionProxy;
@@ -58,8 +58,8 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 	 * @param displayOptions the Options for display properties.
 	 * @param fieldOptions the Options for field specific properties.
 	 */
-	public FunctionSignatureFieldFactory(FieldFormatModel model, HighlightProvider hlProvider,
-			Options displayOptions, Options fieldOptions) {
+	public FunctionSignatureFieldFactory(FieldFormatModel model, ListingHighlightProvider hlProvider,
+			ToolOptions displayOptions, ToolOptions fieldOptions) {
 		super(FIELD_NAME, model, hlProvider, displayOptions, fieldOptions);
 
 		fieldOptions.registerOption(DISPLAY_NAMESPACE, false, null,
@@ -100,7 +100,7 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 			elementIndex++;
 		}
 
-		// noreturn
+		// no return
 		if (function.hasNoReturn()) {
 			as = new AttributedString(Function.NORETURN + " ", FunctionColors.RETURN_TYPE,
 				getMetrics());
@@ -110,7 +110,9 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 		}
 
 		// return type
-		as = new AttributedString(function.getReturn().getFormalDataType().getDisplayName() + " ",
+		String returnTypeName = function.getReturn().getFormalDataType().getDisplayName();
+		returnTypeName = simplifyTemplates(returnTypeName);
+		as = new AttributedString(returnTypeName + " ",
 			FunctionColors.RETURN_TYPE, getMetrics());
 		textElements.add(new FunctionReturnTypeFieldElement(as, elementIndex, 0, startCol));
 		startCol += as.length();
@@ -121,8 +123,7 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 		if (callingConvention.equals(Function.DEFAULT_CALLING_CONVENTION_STRING)) {
 			callingConvention = function.getCallingConvention().getName();
 		}
-		if (callingConvention != null &&
-			!callingConvention.equals(Function.UNKNOWN_CALLING_CONVENTION_STRING)) {
+		if (!callingConvention.equals(Function.UNKNOWN_CALLING_CONVENTION_STRING)) {
 			as = new AttributedString(callingConvention + " ", FunctionColors.RETURN_TYPE,
 				getMetrics());
 			textElements
@@ -132,8 +133,8 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 		}
 
 		// function name
-		as = new AttributedString(function.getName(displayFunctionScope),
-			getFunctionNameColor(function), getMetrics());
+		String functionName = simplifyTemplates(function.getName(displayFunctionScope));
+		as = new AttributedString(functionName, getFunctionNameColor(function), getMetrics());
 		textElements.add(new FunctionNameFieldElement(as, elementIndex, 0, startCol));
 		startCol += as.length();
 		elementIndex++;
@@ -159,15 +160,15 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 			Color pcolor =
 				params[i].isAutoParameter() ? FunctionColors.PARAM_AUTO : FunctionColors.PARAM;
 
-			String text = params[i].getFormalDataType().getDisplayName() + " ";
-			as = new AttributedString(text, pcolor, getMetrics());
+			String dtName = simplifyTemplates(params[i].getFormalDataType().getDisplayName() + " ");
+			as = new AttributedString(dtName, pcolor, getMetrics());
 			textElements.add(
 				new FunctionParameterFieldElement(as, elementIndex, paramOffset, startCol, i));
 			startCol += as.length();
 			paramOffset += as.length();
 			elementIndex++;
 
-			text = params[i].getName();
+			String text = params[i].getName();
 			as = new AttributedString(text, pcolor, getMetrics());
 			textElements.add(
 				new FunctionParameterNameFieldElement(as, elementIndex, paramOffset, startCol, i));
@@ -373,7 +374,7 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 	}
 
 	@Override
-	public FieldFactory newInstance(FieldFormatModel formatModel, HighlightProvider provider,
+	public FieldFactory newInstance(FieldFormatModel formatModel, ListingHighlightProvider provider,
 			ToolOptions toolOptions, ToolOptions fieldOptions) {
 		return new FunctionSignatureFieldFactory(formatModel, provider, toolOptions, fieldOptions);
 	}
@@ -381,7 +382,6 @@ public class FunctionSignatureFieldFactory extends FieldFactory {
 	@Override
 	public void fieldOptionsChanged(Options options, String optionName, Object oldValue,
 			Object newValue) {
-
 		if (optionName.equals(DISPLAY_NAMESPACE)) {
 			displayFunctionScope = ((Boolean) newValue).booleanValue();
 			model.update();

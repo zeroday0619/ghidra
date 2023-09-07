@@ -44,7 +44,7 @@ To create the latest development build for your platform from this source reposi
 
 ##### Install build tools:
 * [JDK 17 64-bit][jdk17]
-* [Gradle 7.3+][gradle] (Gradle 8 is currently not supported)
+* [Gradle 7.3+][gradle]
 * make, gcc, and g++ (Linux/macOS-only)
 * [Microsoft Visual Studio][vs] 2017+ or [Microsoft C++ Build Tools][vcbuildtools] with the
   following components installed (Windows-only):
@@ -55,20 +55,20 @@ To create the latest development build for your platform from this source reposi
 ##### Download and extract the source:
 [Download from GitHub][master]
 ```
-$ unzip ghidra-master
-$ cd ghidra-master
+unzip ghidra-master
+cd ghidra-master
 ```
 **NOTE:** Instead of downloading the compressed source, you may instead want to clone the GitHub 
 repository: `git clone https://github.com/NationalSecurityAgency/ghidra.git`
 
 ##### Download additional build dependencies into source repository: 
 ```
-$ gradle -I gradle/support/fetchDependencies.gradle init
+gradle -I gradle/support/fetchDependencies.gradle init
 ```
 
 ##### Create development build: 
 ```
-$ gradle buildGhidra
+gradle buildGhidra
 ```
 The compressed development build will be located at `build/dist/`.
 
@@ -81,7 +81,10 @@ For issues building, please check the [Known Issues][known-issues] section for p
 ### User Scripts and Extensions
 Ghidra installations support users writing custom scripts and extensions via the *GhidraDev* plugin 
 for Eclipse.  The plugin and its corresponding instructions can be found within a Ghidra release at
-`Extensions/Eclipse/GhidraDev/`.
+`Extensions/Eclipse/GhidraDev/` or at [this link][ghidradev].
+
+**NOTE:** The *GhidraDev* plugin for Eclipse only supports developing against fully built
+Ghidra installations which can be downloaded from the [Releases][releases] page.
 
 ### Advanced Development
 To develop the Ghidra tool itself, it is highly recommended to use Eclipse, which the Ghidra 
@@ -93,7 +96,7 @@ development process has been highly customized for.
 
 ##### Prepare the development environment:
 ``` 
-$ gradle prepdev eclipse buildNatives
+gradle prepdev eclipse buildNatives
 ```
 
 ##### Import Ghidra projects into Eclipse:
@@ -127,3 +130,4 @@ source project.
 [eclipse]: https://www.eclipse.org/downloads/packages/
 [master]: https://github.com/NationalSecurityAgency/ghidra/archive/refs/heads/master.zip
 [security]: https://github.com/NationalSecurityAgency/ghidra/security/advisories
+[ghidradev]: https://htmlpreview.github.io/?https://github.com/NationalSecurityAgency/ghidra/blob/master/GhidraBuild/EclipsePlugins/GhidraDev/GhidraDevPlugin/GhidraDev_README.html

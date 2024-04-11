@@ -51,6 +51,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 
 	private static HashMap<Class<? extends Plugin>, PluginDescription> CACHE = new HashMap<>();
 	private static final String DOTCLASS_EXT = ".class";
+	private static final String NO_CATEGORY = "NO_CATEGORY";
 
 	private final Class<? extends Plugin> pluginClass;
 	private final String name;
@@ -153,7 +154,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 	 */
 	public String getModuleName() {
 		if (moduleName == null) {
-			ResourceFile moduleDir = Application.getModuleContainingClass(pluginClass.getName());
+			ResourceFile moduleDir = Application.getModuleContainingClass(pluginClass);
 			moduleName = (moduleDir == null) ? "<No Module>" : moduleDir.getName();
 		}
 
@@ -370,7 +371,7 @@ public class PluginDescription implements Comparable<PluginDescription> {
 	 */
 	private static PluginDescription createDefaultPluginDescription(Class<? extends Plugin> c) {
 		return new PluginDescription(c, MiscellaneousPluginPackage.NAME,
-			PluginCategoryNames.UNMANAGED, null, null, PluginStatus.UNSTABLE, false,
+			NO_CATEGORY, null, null, PluginStatus.UNSTABLE, false,
 			Collections.emptyList(), Collections.emptyList(), Collections.emptyList(),
 			Collections.emptyList());
 	}

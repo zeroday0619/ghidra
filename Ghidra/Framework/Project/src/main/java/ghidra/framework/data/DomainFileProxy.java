@@ -60,7 +60,7 @@ public class DomainFileProxy implements DomainFile {
 	}
 
 	DomainFileProxy(String name, String parentPath, DomainObjectAdapter doa, int version,
-			String fileID, ProjectLocator projectLocation) {
+			String fileID, ProjectLocator projectLocation) throws IOException {
 
 		this(name, doa);
 		this.parentPath = parentPath;
@@ -313,11 +313,6 @@ public class DomainFileProxy implements DomainFile {
 		return true;
 	}
 
-	public boolean isUsedExclusivelyBy(Object consumer) {
-		DomainObjectAdapter dobj = getDomainObject();
-		return dobj != null ? dobj.isUsedExclusivelyBy(consumer) : false;
-	}
-
 	@Override
 	public ArrayList<?> getConsumers() {
 		DomainObjectAdapter dobj = getDomainObject();
@@ -403,7 +398,7 @@ public class DomainFileProxy implements DomainFile {
 	}
 
 	@Override
-	public void checkin(CheckinHandler checkinHandler, boolean okToUpgrade, TaskMonitor monitor)
+	public void checkin(CheckinHandler checkinHandler, TaskMonitor monitor)
 			throws IOException, VersionException, CancelledException {
 		throw new UnsupportedOperationException("Repository operations not supported");
 	}

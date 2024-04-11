@@ -15,6 +15,9 @@
  */
 package ghidra.pty.local;
 
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 import ghidra.pty.PtySession;
 import ghidra.util.Msg;
 
@@ -23,9 +26,11 @@ import ghidra.util.Msg;
  */
 public class LocalProcessPtySession implements PtySession {
 	private final Process process;
+	private final String ptyName;
 
-	public LocalProcessPtySession(Process process) {
+	public LocalProcessPtySession(Process process, String ptyName) {
 		this.process = process;
+		this.ptyName = ptyName;
 		Msg.info(this, "local Pty session. PID = " + process.pid());
 	}
 
@@ -35,7 +40,21 @@ public class LocalProcessPtySession implements PtySession {
 	}
 
 	@Override
+	public int waitExited(long timeout, TimeUnit unit)
+			throws InterruptedException, TimeoutException {
+		if (!process.waitFor(timeout, unit)) {
+			throw new TimeoutException();
+		}
+		return process.exitValue();
+	}
+
+	@Override
 	public void destroyForcibly() {
 		process.destroyForcibly();
+	}
+
+	@Override
+	public String description() {
+		return "process " + process.pid() + " on " + ptyName;
 	}
 }

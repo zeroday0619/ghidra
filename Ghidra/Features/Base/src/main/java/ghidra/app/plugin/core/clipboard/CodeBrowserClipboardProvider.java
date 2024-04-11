@@ -18,6 +18,7 @@ package ghidra.app.plugin.core.clipboard;
 import java.awt.Rectangle;
 import java.awt.datatransfer.*;
 import java.io.IOException;
+import java.net.URL;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -29,6 +30,7 @@ import org.apache.commons.lang3.StringUtils;
 import docking.ActionContext;
 import docking.ComponentProvider;
 import docking.dnd.GenericDataFlavor;
+import docking.dnd.StringTransferable;
 import docking.widgets.fieldpanel.Layout;
 import docking.widgets.fieldpanel.internal.*;
 import generic.text.TextLayoutGraphics;
@@ -41,11 +43,14 @@ import ghidra.app.services.ClipboardContentProviderService;
 import ghidra.app.util.*;
 import ghidra.app.util.viewer.listingpanel.ListingModel;
 import ghidra.framework.cmd.Command;
+import ghidra.framework.model.DomainFile;
 import ghidra.framework.plugintool.PluginTool;
+import ghidra.program.database.mem.AddressSourceInfo;
 import ghidra.program.database.symbol.CodeSymbol;
 import ghidra.program.database.symbol.FunctionSymbol;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.mem.Memory;
 import ghidra.program.model.symbol.*;
 import ghidra.program.util.*;
 import ghidra.util.Msg;
@@ -63,6 +68,8 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		new ClipboardType(DataFlavor.stringFlavor, "Address");
 	public static final ClipboardType ADDRESS_TEXT_WITH_OFFSET_TYPE =
 		new ClipboardType(DataFlavor.stringFlavor, "Address w/ Offset");
+	public static final ClipboardType BYTE_SOURCE_OFFSET_TYPE =
+		new ClipboardType(DataFlavor.stringFlavor, "Byte Source Offset");
 	public static final ClipboardType CODE_TEXT_TYPE =
 		new ClipboardType(DataFlavor.stringFlavor, "Formatted Code");
 	public static final ClipboardType LABELS_COMMENTS_TYPE =
@@ -71,6 +78,10 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		new ClipboardType(CodeUnitInfoTransferable.localDataTypeFlavor, "Labels");
 	public static final ClipboardType COMMENTS_TYPE =
 		new ClipboardType(CodeUnitInfoTransferable.localDataTypeFlavor, "Comments");
+	public static final ClipboardType GHIDRA_LOCAL_URL_TYPE =
+		new ClipboardType(DataFlavor.stringFlavor, "Local GhidraURL");
+	public static final ClipboardType GHIDRA_SHARED_URL_TYPE =
+		new ClipboardType(DataFlavor.stringFlavor, "Shared GhidraURL");
 
 	private static final List<ClipboardType> COPY_TYPES = createCopyTypesList();
 
@@ -88,6 +99,7 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		list.add(CPP_BYTE_ARRAY_TYPE);
 		list.add(ADDRESS_TEXT_TYPE);
 		list.add(ADDRESS_TEXT_WITH_OFFSET_TYPE);
+		list.add(BYTE_SOURCE_OFFSET_TYPE);
 
 		return list;
 	}
@@ -178,7 +190,32 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 
 	@Override
 	public List<ClipboardType> getCurrentCopyTypes() {
-		return COPY_TYPES;
+		ClipboardType urlType = getGhidraUrlClipboardType();
+		if (urlType == null) {
+			return COPY_TYPES;
+		}
+
+		List<ClipboardType> currentCopyTypes = new ArrayList<>(COPY_TYPES);
+		currentCopyTypes.add(urlType);
+		return currentCopyTypes;
+	}
+
+	private ClipboardType getGhidraUrlClipboardType() {
+		if (currentProgram == null) {
+			return null;
+		}
+
+		DomainFile domainFile = currentProgram.getDomainFile();
+		if (domainFile == null) {
+			return null;
+		}
+		if (domainFile.getLocalProjectURL(null) != null) {
+			return GHIDRA_LOCAL_URL_TYPE;
+		}
+		if (domainFile.getSharedProjectURL(null) != null) {
+			return GHIDRA_SHARED_URL_TYPE;
+		}
+		return null;
 	}
 
 	@Override
@@ -189,6 +226,9 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		}
 		else if (copyType == ADDRESS_TEXT_WITH_OFFSET_TYPE) {
 			return copySymbolString(monitor);
+		}
+		else if (copyType == BYTE_SOURCE_OFFSET_TYPE) {
+			return copyByteSourceOffset(monitor);
 		}
 		else if (copyType == CODE_TEXT_TYPE) {
 			return copyCode(monitor);
@@ -201,6 +241,12 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		}
 		else if (copyType == COMMENTS_TYPE) {
 			return copyLabelsComments(false, true, monitor);
+		}
+		else if (copyType == GHIDRA_LOCAL_URL_TYPE) {
+			return copyLocalGhidraURL();
+		}
+		else if (copyType == GHIDRA_SHARED_URL_TYPE) {
+			return copySharedGhidraURL();
 		}
 
 		return copyBytes(copyType, monitor);
@@ -345,6 +391,24 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		return createStringTransferable(StringUtils.join(strings, "\n"));
 	}
 
+	private Transferable copyByteSourceOffset(TaskMonitor monitor) {
+		AddressSetView addrs = getSelectedAddresses();
+		Memory currentMemory = currentProgram.getMemory();
+		List<String> strings = new ArrayList<>();
+		AddressIterator addresses = addrs.getAddresses(true);
+		while (addresses.hasNext() && !monitor.isCancelled()) {
+			AddressSourceInfo addressSourceInfo =
+				currentMemory.getAddressSourceInfo(addresses.next());
+			if (addressSourceInfo != null) {
+				long fileOffset = addressSourceInfo.getFileOffset();
+				String fileOffsetString =
+					fileOffset != -1 ? "%x".formatted(fileOffset) : "<NO_OFFSET>";
+				strings.add(fileOffsetString);
+			}
+		}
+		return createStringTransferable(String.join("\n", strings));
+	}
+
 	protected Transferable copyCode(TaskMonitor monitor) {
 
 		AddressSetView addressSet = getSelectedAddresses();
@@ -388,6 +452,26 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		Address startAddr = addressSet.getMinAddress();
 		getCodeUnitInfo(addressSet, startAddr, list, copyLabels, copyComments, monitor);
 		return new CodeUnitInfoTransferable(list);
+	}
+
+	/**
+	 * Gets the Local GhidraURL to the currentLocation within the currentProgram.
+	 * @return string transferable GhidraURL type.
+	 */
+	private Transferable copyLocalGhidraURL() {
+		String address = currentLocation.getAddress().toString();
+		URL url = currentProgram.getDomainFile().getLocalProjectURL(address);
+		return createStringTransferable(url.toString());
+	}
+
+	/**
+	 * Gets the Shared GhidraURL to the currentLocation within the currentProgram.
+	 * @return string transferable GhidraURL type.
+	 */
+	private Transferable copySharedGhidraURL() {
+		String address = currentLocation.getAddress().toString();
+		URL url = currentProgram.getDomainFile().getSharedProjectURL(address);
+		return createStringTransferable(url.toString());
 	}
 
 	private boolean pasteLabelsComments(Transferable pasteData, boolean pasteLabels,
@@ -667,7 +751,7 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 // Inner Classes
 //==================================================================================================
 
-	private static class LabelStringTransferable implements Transferable {
+	private static class LabelStringTransferable extends StringTransferable {
 
 		public static final DataFlavor labelStringFlavor = new GenericDataFlavor(
 			DataFlavor.javaJVMLocalObjectMimeType + "; class=java.lang.String",
@@ -676,20 +760,18 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		private final DataFlavor[] flavors = { labelStringFlavor, DataFlavor.stringFlavor };
 		private final List<DataFlavor> flavorList = Arrays.asList(flavors);
 
-		private String symbolName;
-
 		LabelStringTransferable(String name) {
-			this.symbolName = name;
+			super(name);
 		}
 
 		@Override
 		public Object getTransferData(DataFlavor flavor)
 				throws UnsupportedFlavorException, IOException {
 			if (flavor.equals(labelStringFlavor)) {
-				return symbolName;
+				return data;
 			}
 			if (flavor.equals(DataFlavor.stringFlavor)) {
-				return symbolName;
+				return data;
 			}
 			throw new UnsupportedFlavorException(flavor);
 		}
@@ -705,7 +787,7 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		}
 	}
 
-	private static class NonLabelStringTransferable implements Transferable {
+	private static class NonLabelStringTransferable extends StringTransferable {
 
 		public static final DataFlavor nonLabelStringFlavor = new GenericDataFlavor(
 			DataFlavor.javaJVMLocalObjectMimeType + "; class=java.lang.String",
@@ -714,9 +796,11 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 		private final DataFlavor[] flavors = { nonLabelStringFlavor, DataFlavor.stringFlavor };
 		private final List<DataFlavor> flavorList = Arrays.asList(flavors);
 
-		private String text;
-
 		NonLabelStringTransferable(String[] text) {
+			super(combine(text));
+		}
+
+		private static String combine(String[] text) {
 			StringBuilder buildy = new StringBuilder();
 			for (String string : text) {
 				if (buildy.length() > 0) {
@@ -724,21 +808,21 @@ public class CodeBrowserClipboardProvider extends ByteCopier
 				}
 				buildy.append(string);
 			}
-			this.text = buildy.toString();
+			return buildy.toString();
 		}
 
 		NonLabelStringTransferable(String text) {
-			this.text = text;
+			super(text);
 		}
 
 		@Override
 		public Object getTransferData(DataFlavor flavor)
 				throws UnsupportedFlavorException, IOException {
 			if (flavor.equals(nonLabelStringFlavor)) {
-				return text;
+				return data;
 			}
 			if (flavor.equals(DataFlavor.stringFlavor)) {
-				return text;
+				return data;
 			}
 			throw new UnsupportedFlavorException(flavor);
 		}

@@ -18,6 +18,7 @@ data/ExtensionPoint.manifest||GHIDRA||||END|
 data/GolangFunctionsThatDoNotReturn||GHIDRA||||END|
 data/MachOFunctionsThatDoNotReturn||GHIDRA||||END|
 data/PEFunctionsThatDoNotReturn||GHIDRA||||END|
+data/RustFunctionsThatDoNotReturn||GHIDRA||||END|
 data/base.file.extensions.icons.theme.properties||GHIDRA||||END|
 data/base.icons.theme.properties||GHIDRA||||END|
 data/base.listing.theme.properties||GHIDRA||||END|
@@ -41,7 +42,7 @@ data/parserprofiles/linux_64.prf||GHIDRA||||END|
 data/parserprofiles/objc_mac_carbon.prf||GHIDRA||||END|
 data/parserprofiles/vs12Local.prf||GHIDRA||||END|
 data/pcodetest/EmuTesting.gdt||GHIDRA||||END|
-data/stringngrams/StringModel.sng||GHIDRA||reviewed||END|
+data/stringngrams/StringModel.sng||GHIDRA||||END|
 data/symbols/README.txt||GHIDRA||||END|
 data/symbols/win16/commctrl.exports||GHIDRA||||END|
 data/symbols/win16/commdlg.exports||GHIDRA||||END|
@@ -90,10 +91,13 @@ data/typeinfo/golang/golang_1.17_anybit_any.gdt||GHIDRA||||END|
 data/typeinfo/golang/golang_1.18_anybit_any.gdt||GHIDRA||||END|
 data/typeinfo/golang/golang_1.19_anybit_any.gdt||GHIDRA||||END|
 data/typeinfo/golang/golang_1.20_anybit_any.gdt||GHIDRA||||END|
+data/typeinfo/golang/golang_1.21_anybit_any.gdt||GHIDRA||||END|
+data/typeinfo/golang/runtimesnapshot.go||GHIDRA||||END|
 data/typeinfo/mac_10.9/mac_osx.gdt||GHIDRA||||END|
+data/typeinfo/rust/rust-common.gdt||GHIDRA||||END|
 data/typeinfo/win32/msvcrt/clsids.txt||GHIDRA||reviewed||END|
 data/typeinfo/win32/msvcrt/guids.txt||GHIDRA||reviewed||END|
-data/typeinfo/win32/msvcrt/iids.txt||GHIDRA||reviewed||END|
+data/typeinfo/win32/msvcrt/iids.txt||GHIDRA||||END|
 data/typeinfo/win32/msvcrt/syntaxes.txt||GHIDRA||||END|
 data/typeinfo/win32/windows_vs12_32.gdt||GHIDRA||||END|
 data/typeinfo/win32/windows_vs12_64.gdt||GHIDRA||||END|
@@ -265,7 +269,6 @@ src/main/help/help/topics/FrontEndPlugin/Project_Info.htm||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/Re-opening_a_Project.htm||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/Restore_Project.htm||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/Saving_a_Ghidra_Project.htm||GHIDRA||||END|
-src/main/help/help/topics/FrontEndPlugin/ShowMemoryUsage.htm||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/ArchiveFileExists.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/ArchiveProject.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/ChangeAccessList.png||GHIDRA||||END|
@@ -282,7 +285,6 @@ src/main/help/help/topics/FrontEndPlugin/images/DeleteProject.png||GHIDRA||||END
 src/main/help/help/topics/FrontEndPlugin/images/EditPluginPath.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/EditProjectAccessList.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/LinkOtherProject.png||GHIDRA||||END|
-src/main/help/help/topics/FrontEndPlugin/images/MemoryUsage.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/NonSharedProjectInfo.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/OpenProject.png||GHIDRA||||END|
 src/main/help/help/topics/FrontEndPlugin/images/PrivateFileIcon.png||GHIDRA||||END|
@@ -389,7 +391,6 @@ src/main/help/help/topics/MemoryMapPlugin/images/MoveMemory.png||GHIDRA||||END|
 src/main/help/help/topics/MemoryMapPlugin/images/SetImageBaseDialog.png||GHIDRA||||END|
 src/main/help/help/topics/MemoryMapPlugin/images/SplitMemoryBlock.png||GHIDRA||||END|
 src/main/help/help/topics/Misc/Appendix.htm||GHIDRA||||END|
-src/main/help/help/topics/Misc/Tips.htm||NONE||||END|
 src/main/help/help/topics/Misc/Welcome_to_Ghidra_Help.htm||GHIDRA||||END|
 src/main/help/help/topics/Navigation/Navigation.htm||GHIDRA||||END|
 src/main/help/help/topics/Navigation/images/GoToDialog.png||GHIDRA||||END|
@@ -498,6 +499,8 @@ src/main/help/help/topics/Repository/images/SymbolRemoveVsChangeConflict.png||GH
 src/main/help/help/topics/Repository/images/SymbolRenameWithScopeConflict.png||GHIDRA||reviewed||END|
 src/main/help/help/topics/Repository/images/UserDefinedUseForAllConflict.png||GHIDRA||reviewed||END|
 src/main/help/help/topics/ResourceActionsPlugin/ResourceActions.html||GHIDRA||||END|
+src/main/help/help/topics/RuntimeInfoPlugin/InstalledProcessors.htm||GHIDRA||||END|
+src/main/help/help/topics/RuntimeInfoPlugin/RuntimeInfo.htm||GHIDRA||||END|
 src/main/help/help/topics/ScalarSearchPlugin/The_Scalar_Table.htm||GHIDRA||||END|
 src/main/help/help/topics/ScalarSearchPlugin/images/ScalarWindow.png||GHIDRA||||END|
 src/main/help/help/topics/ScalarSearchPlugin/images/SearchAllScalarsDialog.png||GHIDRA||||END|
@@ -511,6 +514,8 @@ src/main/help/help/topics/Search/Search_for_DirectReferences.htm||GHIDRA||||END|
 src/main/help/help/topics/Search/Search_for_Strings.htm||GHIDRA||||END|
 src/main/help/help/topics/Search/Searching.htm||GHIDRA||||END|
 src/main/help/help/topics/Search/images/DirectReferences.png||GHIDRA||||END|
+src/main/help/help/topics/Search/images/EncodedStringsDialog_advancedoptions.png||GHIDRA||||END|
+src/main/help/help/topics/Search/images/EncodedStringsDialog_initial.png||GHIDRA||||END|
 src/main/help/help/topics/Search/images/MultipleSelectionError.png||GHIDRA||||END|
 src/main/help/help/topics/Search/images/QueryResultsSearch.png||GHIDRA||||END|
 src/main/help/help/topics/Search/images/SearchForAddressTables.png||GHIDRA||||END|
@@ -713,7 +718,6 @@ src/main/resources/images/ThunkFunction.gif||GHIDRA||||END|
 src/main/resources/images/U.gif||GHIDRA||||END|
 src/main/resources/images/Unpackage.gif||GHIDRA||||END|
 src/main/resources/images/V.png||GHIDRA||||END|
-src/main/resources/images/VCRFastForward.gif||GHIDRA||||END|
 src/main/resources/images/akregator.png||Oxygen Icons - LGPL 3.0||||END|
 src/main/resources/images/application_double.png||FAMFAMFAM Icons - CC 2.5|||famfamfam silk icon set|END|
 src/main/resources/images/applications-development.png||Oxygen Icons - LGPL 3.0||||END|
@@ -871,7 +875,6 @@ src/main/resources/images/page_white.png||FAMFAMFAM Icons - CC 2.5|||famfamfam s
 src/main/resources/images/page_white_c.png||FAMFAMFAM Icons - CC 2.5|||famfamfam silk icon set|END|
 src/main/resources/images/pencil16.png||GHIDRA||||END|
 src/main/resources/images/pin.png||GHIDRA||||END|
-src/main/resources/images/pinkX.gif||GHIDRA||||END|
 src/main/resources/images/play_again.png||GHIDRA||||END|
 src/main/resources/images/preferences-system.png||Tango Icons - Public Domain|||tango|END|
 src/main/resources/images/question_zero.png||GHIDRA||||END|
@@ -886,6 +889,7 @@ src/main/resources/images/searchm_obj.gif||GHIDRA||||END|
 src/main/resources/images/searchm_pink.gif||GHIDRA||||END|
 src/main/resources/images/settings16.gif||GHIDRA||||END|
 src/main/resources/images/sitemap_color.png||FAMFAMFAM Icons - CC 2.5|||famfamfam silk icon set|END|
+src/main/resources/images/slash.png||GHIDRA||||END|
 src/main/resources/images/smallLeftArrow.png||GHIDRA||||END|
 src/main/resources/images/smallRightArrow.png||GHIDRA||||END|
 src/main/resources/images/small_minus.png||GHIDRA||||END|
@@ -910,7 +914,6 @@ src/main/resources/images/view-sort-descending.png||Oxygen Icons - LGPL 3.0|||Ox
 src/main/resources/images/window.png||GHIDRA||||END|
 src/main/resources/images/wizard.png||Nuvola Icons - LGPL 2.1|||nuvola|END|
 src/main/resources/images/x-office-document-template.png||Tango Icons - Public Domain|||tango icon set|END|
-src/main/resources/images/x.gif||GHIDRA||||END|
 src/main/resources/images/xor.png||GHIDRA||||END|
 src/main/resources/pcodetest/chunk1.hinc||GHIDRA||||END|
 src/main/resources/pcodetest/chunk2.hinc||GHIDRA||||END|

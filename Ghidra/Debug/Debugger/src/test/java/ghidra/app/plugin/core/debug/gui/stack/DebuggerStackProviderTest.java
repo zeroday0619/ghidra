@@ -15,7 +15,8 @@
  */
 package ghidra.app.plugin.core.debug.gui.stack;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
 import java.util.List;
@@ -25,8 +26,7 @@ import org.junit.*;
 
 import db.Transaction;
 import docking.widgets.table.DynamicTableColumn;
-import ghidra.app.plugin.core.debug.DebuggerCoordinates;
-import ghidra.app.plugin.core.debug.gui.AbstractGhidraHeadedDebuggerGUITest;
+import ghidra.app.plugin.core.debug.gui.AbstractGhidraHeadedDebuggerTest;
 import ghidra.app.plugin.core.debug.gui.model.ObjectTableModel.ValueProperty;
 import ghidra.app.plugin.core.debug.gui.model.ObjectTableModel.ValueRow;
 import ghidra.app.plugin.core.debug.gui.model.QueryPanelTestHelper;
@@ -40,6 +40,7 @@ import ghidra.dbg.target.schema.TargetObjectSchema.SchemaName;
 import ghidra.dbg.target.schema.XmlSchemaContext;
 import ghidra.dbg.util.PathPattern;
 import ghidra.dbg.util.PathUtils;
+import ghidra.debug.api.tracemgr.DebuggerCoordinates;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.lang.Register;
@@ -52,13 +53,14 @@ import ghidra.trace.model.stack.TraceObjectStack;
 import ghidra.trace.model.target.*;
 import ghidra.trace.model.target.TraceObject.ConflictResolution;
 import ghidra.trace.model.thread.TraceObjectThread;
+import ghidra.util.table.GhidraTable;
 import ghidra.util.task.TaskMonitor;
 
 /**
  * NOTE: I no longer synthesize a stack frame when the stack is absent. It's a bit of a hack, and I
  * don't know if it's really valuable. In fact, in might obscure the fact that the stack is absent.
  */
-public class DebuggerStackProviderTest extends AbstractGhidraHeadedDebuggerGUITest {
+public class DebuggerStackProviderTest extends AbstractGhidraHeadedDebuggerTest {
 	protected DebuggerStackPlugin stackPlugin;
 	protected DebuggerStackProvider stackProvider;
 	protected DebuggerStaticMappingService mappingService;
@@ -215,13 +217,18 @@ public class DebuggerStackProviderTest extends AbstractGhidraHeadedDebuggerGUITe
 
 	protected void assertRow(int level, Address pcVal, Function func) {
 		ValueRow row = stackProvider.panel.getAllItems().get(level);
+		var tableModel = QueryPanelTestHelper.getTableModel(stackProvider.panel);
+		GhidraTable table = QueryPanelTestHelper.getTable(stackProvider.panel);
 
-		DynamicTableColumn<ValueRow, String, Trace> levelCol =
-			stackProvider.panel.getColumnByNameAndType("Level", String.class).getValue();
-		DynamicTableColumn<ValueRow, ?, Trace> pcCol =
-			stackProvider.panel.getColumnByNameAndType("PC", ValueProperty.class).getValue();
-		DynamicTableColumn<ValueRow, Function, Trace> funcCol =
-			stackProvider.panel.getColumnByNameAndType("Function", Function.class).getValue();
+		DynamicTableColumn<ValueRow, String, Trace> levelCol = QueryPanelTestHelper
+				.getColumnByNameAndType(tableModel, table, "Level", String.class)
+				.column();
+		DynamicTableColumn<ValueRow, ?, Trace> pcCol = QueryPanelTestHelper
+				.getColumnByNameAndType(tableModel, table, "PC", ValueProperty.class)
+				.column();
+		DynamicTableColumn<ValueRow, Function, Trace> funcCol = QueryPanelTestHelper
+				.getColumnByNameAndType(tableModel, table, "Function", Function.class)
+				.column();
 
 		assertEquals(PathUtils.makeKey(PathUtils.makeIndex(level)), rowColVal(row, levelCol));
 		assertEquals(pcVal, rowColVal(row, pcCol));
@@ -308,8 +315,6 @@ public class DebuggerStackProviderTest extends AbstractGhidraHeadedDebuggerGUITe
 
 	/**
 	 * Because keys are strings, we need to ensure they get sorted numerically
-	 * 
-	 * @throws Exception
 	 */
 	@Test
 	public void testTableSortedCorrectly() throws Exception {

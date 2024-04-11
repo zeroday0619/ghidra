@@ -43,7 +43,7 @@ import docking.util.image.ToolIconURL;
 import docking.widgets.OptionDialog;
 import generic.jar.ResourceFile;
 import generic.util.WindowUtilities;
-import ghidra.app.plugin.GenericPluginCategoryNames;
+import ghidra.app.plugin.PluginCategoryNames;
 import ghidra.app.util.GenericHelpTopics;
 import ghidra.framework.Application;
 import ghidra.framework.LoggingInitialization;
@@ -158,7 +158,6 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 		toolFrame.addWindowListener(windowListener);
 
 		AppInfo.setFrontEndTool(this);
-		AppInfo.setActiveProject(getProject());
 
 		initFrontEndOptions();
 	}
@@ -279,7 +278,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 	/**
 	 * Add those plugins that implement the ApplicationLevelPlugin interface and have a
-	 * RELEASED status and not (example || testing) category.
+	 * RELEASED status and not example category.
 	 */
 	private void installDefaultApplicationLevelPlugins() {
 		List<String> classNames = new ArrayList<>();
@@ -288,8 +287,7 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 			PluginDescription pd = PluginDescription.getPluginDescription(pluginClass);
 			String category = pd.getCategory();
-			boolean isBadCategory = category.equals(GenericPluginCategoryNames.EXAMPLES) ||
-				category.equals(GenericPluginCategoryNames.TESTING);
+			boolean isBadCategory = category.equals(PluginCategoryNames.EXAMPLES);
 			if (pd.getStatus() == PluginStatus.RELEASED && !isBadCategory) {
 				classNames.add(pluginClass.getName());
 			}
@@ -409,7 +407,6 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 		configureToolAction.setEnabled(true);
 		setProject(project);
-		AppInfo.setActiveProject(project);
 		plugin.setActiveProject(project);
 		firePluginEvent(new ProjectPluginEvent(getClass().getSimpleName(), project));
 	}
@@ -617,7 +614,6 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 
 			// Treat setVisible(false) as a dispose, as this is the only time we should be hidden
 			AppInfo.setFrontEndTool(null);
-			AppInfo.setActiveProject(null);
 			dispose();
 		}
 	}
@@ -646,9 +642,8 @@ public class FrontEndTool extends PluginTool implements OptionsChangeListener {
 				return isConfigurable();
 			}
 		};
-		MenuData menuData =
-			new MenuData(new String[] { ToolConstants.MENU_FILE, "Install Extensions" }, null,
-				CONFIGURE_GROUP);
+		MenuData menuData = new MenuData(
+			new String[] { ToolConstants.MENU_FILE, "Install Extensions" }, null, CONFIGURE_GROUP);
 		menuData.setMenuSubGroup(CONFIGURE_GROUP + 2);
 		installExtensionsAction.setMenuBarData(menuData);
 

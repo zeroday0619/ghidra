@@ -31,11 +31,11 @@ import ghidra.framework.data.DomainObjectAdapter;
 import ghidra.framework.main.FrontEndTool;
 import ghidra.framework.model.*;
 import ghidra.framework.project.DefaultProjectManager;
-import ghidra.framework.project.extensions.ExtensionUtils;
 import ghidra.framework.store.LockException;
 import ghidra.program.database.ProgramDB;
 import ghidra.util.*;
 import ghidra.util.exception.UsrException;
+import ghidra.util.extensions.ExtensionUtils;
 import ghidra.util.task.TaskLauncher;
 
 /**
@@ -75,6 +75,9 @@ public class GhidraRun implements GhidraLaunchable {
 
 			log = LogManager.getLogger(GhidraRun.class);
 			log.info("User " + SystemUtilities.getUserName() + " started Ghidra.");
+			log.info("User settings directory: " + Application.getUserSettingsDirectory());
+			log.info("User temp directory: " + Application.getUserTempDirectory());
+			log.info("User cache directory: " + Application.getUserCacheDirectory());
 
 			initializeTooltips();
 
@@ -82,9 +85,6 @@ public class GhidraRun implements GhidraLaunchable {
 			GhidraHelpService.install();
 
 			ExtensionUtils.initializeExtensions();
-
-			// Allows handling of old content which did not have a content type property
-			DomainObjectAdapter.setDefaultContentClass(ProgramDB.class);
 
 			updateSplashScreenStatusMessage("Checking for previous project...");
 			SystemUtilities.runSwingLater(() -> {

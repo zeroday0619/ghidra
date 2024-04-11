@@ -39,6 +39,7 @@ import docking.widgets.pathmanager.PathnameTablePanel;
 import docking.widgets.table.GTableCellRenderer;
 import docking.widgets.table.GTableCellRenderingData;
 import generic.jar.ResourceFile;
+import generic.theme.Gui;
 import ghidra.app.plugin.core.processors.SetLanguageDialog;
 import ghidra.app.util.cparser.C.CParserUtils;
 import ghidra.framework.Application;
@@ -54,15 +55,14 @@ import ghidra.util.filechooser.ExtensionFileFilter;
 import resources.Icons;
 
 /**
- * Dialog that shows files used for parsing C header files. The profile has a list of
- * source header files to parse, followed by parse options (compiler directives).
- * Ghidra supplies a Windows profile by default in core/parserprofiles. The user can do
- * "save as" on this default profile to create new profiles that will be written to the
- * user's <home>/userprofiles directory. The CParserPlugin creates this directory if it
- * doesn't exist.
+ * Dialog that shows files used for parsing C header files. The profile has a list of source header
+ * files to parse, followed by parse options (compiler directives). Ghidra supplies a Windows
+ * profile by default in core/parserprofiles. The user can do "save as" on this default profile to
+ * create new profiles that will be written to the user's <home>/userprofiles directory. The
+ * CParserPlugin creates this directory if it doesn't exist.
  *
- * The data types resulting from the parse operation can either be added to the data type
- * manager in the current program, or written to an archive data file.
+ * The data types resulting from the parse operation can either be added to the data type manager in
+ * the current program, or written to an archive data file.
  *
  *
  *
@@ -202,7 +202,8 @@ class ParseDialog extends ReusableDialogComponentProvider {
 		comboPanel.setBorder(BorderFactory.createEmptyBorder(5, 5, 5, 5));
 		comboPanel.add(cPanel);
 
-		pathPanel = new PathnameTablePanel(null, true, false);
+		// enable edits, add to bottom, ordered
+		pathPanel = new PathnameTablePanel(null, true, false, true);
 		pathPanel.setBorder(BorderFactory.createTitledBorder("Source files to parse"));
 		String importDir = Preferences.getProperty(LAST_IMPORT_C_DIRECTORY);
 		if (importDir == null) {
@@ -257,7 +258,8 @@ class ParseDialog extends ReusableDialogComponentProvider {
 		tableModel = pathPanel.getTable().getModel();
 		tableModel.addTableModelListener(tableListener);
 
-		includePathPanel = new PathnameTablePanel(null, true, false);
+		// enable edits, add to bottom, ordered
+		includePathPanel = new PathnameTablePanel(null, true, false, true);
 		includePathPanel.setBorder(BorderFactory.createTitledBorder("Include paths"));
 		includePathPanel.setFileChooserProperties("Choose Source Files", LAST_IMPORT_C_DIRECTORY,
 			GhidraFileChooserMode.FILES_AND_DIRECTORIES, true,
@@ -370,8 +372,7 @@ class ParseDialog extends ReusableDialogComponentProvider {
 		updateArchitectureDescription();
 
 		languageButton.setName("Set Processor Architecture");
-		Font font = languageButton.getFont();
-		languageButton.setFont(font.deriveFont(Font.BOLD));
+		Gui.registerFont(languageButton, Font.BOLD);
 
 		JPanel panel = new JPanel(new BorderLayout());
 		panel.add(languageTextField, BorderLayout.CENTER);
@@ -804,13 +805,13 @@ class ParseDialog extends ReusableDialogComponentProvider {
 		paths = expandPaths(paths);
 		pathPanel.setPaths(paths);
 
-		if (parseToFile) {		
+		if (parseToFile) {
 			if (languageIDString == null || compilerIDString == null) {
 				Msg.showWarn(getClass(), rootPanel, "Program Architecture not Specified",
 					"A Program Architecture must be specified in order to parse to a file.");
 				return;
 			}
-			
+
 			File file = getSaveFile();
 			if (file != null) {
 				plugin.parse(paths, includePaths, options, languageIDString, compilerIDString,
@@ -818,7 +819,7 @@ class ParseDialog extends ReusableDialogComponentProvider {
 			}
 			return;
 		}
-		
+
 		plugin.parse(paths, includePaths, options);
 	}
 

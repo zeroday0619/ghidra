@@ -35,13 +35,14 @@ import docking.wizard.WizardManager;
 import docking.wizard.WizardPanel;
 import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.plugin.core.archive.RestoreDialog;
-import ghidra.framework.data.GhidraFileData;
+import ghidra.framework.Application;
 import ghidra.framework.data.DefaultProjectData;
+import ghidra.framework.data.GhidraFileData;
 import ghidra.framework.main.*;
 import ghidra.framework.model.*;
-import ghidra.framework.plugintool.dialog.*;
 import ghidra.framework.preferences.Preferences;
-import ghidra.framework.project.extensions.*;
+import ghidra.framework.project.extensions.ExtensionTablePanel;
+import ghidra.framework.project.extensions.ExtensionTableProvider;
 import ghidra.framework.remote.User;
 import ghidra.framework.store.LockException;
 import ghidra.program.database.ProgramContentHandler;
@@ -50,12 +51,12 @@ import ghidra.test.ProjectTestUtils;
 import ghidra.util.InvalidNameException;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
+import ghidra.util.extensions.ExtensionDetails;
 import ghidra.util.task.TaskMonitor;
 import resources.MultiIcon;
 
 public class FrontEndPluginScreenShots extends GhidraScreenShotGenerator {
 	private static final String OTHER_PROJECT = "Other_Project";
-	private final static String TEMP_DIR = System.getProperty("java.io.tmpdir");
 	Icon icon = (Icon) getInstanceField("CONVERT_ICON", ProjectInfoDialog.class);
 
 	public FrontEndPluginScreenShots() {
@@ -658,6 +659,7 @@ public class FrontEndPluginScreenShots extends GhidraScreenShotGenerator {
 	@Test
 	public void testViewOtherProjects()
 			throws IOException, LockException, InvalidNameException, CancelledException {
+		String TEMP_DIR = Application.getUserTempDirectory().getAbsolutePath();
 
 		Project project = env.getProject();
 		program = env.getProgram("WinHelloCPP.exe");
@@ -691,6 +693,7 @@ public class FrontEndPluginScreenShots extends GhidraScreenShotGenerator {
 	@Test
 	public void testLinkOtherProject()
 			throws IOException, LockException, InvalidNameException, CancelledException {
+		String TEMP_DIR = Application.getUserTempDirectory().getAbsolutePath();
 
 		Project project = env.getProject();
 		program = env.getProgram("WinHelloCPP.exe");
@@ -703,7 +706,7 @@ public class FrontEndPluginScreenShots extends GhidraScreenShotGenerator {
 		Language language = getZ80_LANGUAGE();
 		DomainFile otherFile =
 			ProjectTestUtils.createProgramFile(otherProject, "Program1", language,
-			language.getDefaultCompilerSpec(), null);
+				language.getDefaultCompilerSpec(), null);
 		ProjectTestUtils.createProgramFile(otherProject, "Program2", language,
 			language.getDefaultCompilerSpec(), null);
 

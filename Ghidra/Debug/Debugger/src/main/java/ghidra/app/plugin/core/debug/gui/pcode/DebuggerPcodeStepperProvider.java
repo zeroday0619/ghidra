@@ -26,18 +26,17 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import javax.swing.*;
-import javax.swing.table.*;
+import javax.swing.table.TableColumn;
+import javax.swing.table.TableColumnModel;
 
 import db.Transaction;
 import docking.action.DockingAction;
 import docking.widgets.table.*;
 import docking.widgets.table.DefaultEnumeratedColumnTableModel.EnumeratedTableColumn;
 import generic.theme.GColor;
-import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.DebuggerPluginPackage;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources;
 import ghidra.app.plugin.core.debug.gui.pcode.UniqueRow.RefType;
-import ghidra.app.plugin.core.debug.service.emulation.DebuggerPcodeMachine;
 import ghidra.app.plugin.processors.sleigh.template.OpTpl;
 import ghidra.app.services.DebuggerEmulationService;
 import ghidra.app.services.DebuggerTraceManagerService;
@@ -45,6 +44,8 @@ import ghidra.app.util.pcode.AbstractAppender;
 import ghidra.app.util.pcode.AbstractPcodeFormatter;
 import ghidra.async.SwingExecutorService;
 import ghidra.base.widgets.table.DataTypeTableCellEditor;
+import ghidra.debug.api.emulation.DebuggerPcodeMachine;
+import ghidra.debug.api.tracemgr.DebuggerCoordinates;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.*;
 import ghidra.framework.plugintool.annotation.AutoServiceConsumed;
@@ -265,8 +266,8 @@ public class DebuggerPcodeStepperProvider extends ComponentProviderAdapter {
 		}
 
 		@Override
-		protected void configureFont(JTable table, TableModel model, int column) {
-			setFont(fixedWidthFont);
+		protected Font getDefaultFont() {
+			return fixedWidthFont;
 		}
 
 		@Override

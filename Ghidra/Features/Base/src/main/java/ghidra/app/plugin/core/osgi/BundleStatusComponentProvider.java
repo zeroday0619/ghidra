@@ -103,7 +103,6 @@ public class BundleStatusComponentProvider extends ComponentProviderAdapter {
 		panel = new JPanel(new BorderLayout(5, 5));
 
 		bundleStatusTable = new GTable(bundleStatusTableModel);
-		bundleStatusTable.setName("BUNDLESTATUS_TABLE");
 		bundleStatusTable.setSelectionBackground(new GColor("color.bg.table.selection.bundle"));
 		bundleStatusTable.setSelectionForeground(new GColor("color.fg.table.selection.bundle"));
 		bundleStatusTable.setSelectionMode(ListSelectionModel.MULTIPLE_INTERVAL_SELECTION);
@@ -118,15 +117,17 @@ public class BundleStatusComponentProvider extends ComponentProviderAdapter {
 
 		// to allow custom cell renderers
 		bundleStatusTable.setAutoCreateColumnsFromModel(false);
-
 		filterPanel = new GTableFilterPanel<>(bundleStatusTable, bundleStatusTableModel);
-
 		JScrollPane scrollPane = new JScrollPane(bundleStatusTable);
-		scrollPane.getViewport().setBackground(bundleStatusTable.getBackground());
 
 		panel.add(filterPanel, BorderLayout.SOUTH);
 		panel.add(scrollPane, BorderLayout.CENTER);
 		panel.setPreferredSize(new Dimension(800, 400));
+
+		String namePrefix = "Bundle Manager";
+		bundleStatusTable.setAccessibleNamePrefix(namePrefix);
+		filterPanel.setAccessibleNamePrefix(namePrefix);
+
 	}
 
 	private void addBundlesAction(String actionName, String description, Icon icon,
@@ -159,8 +160,8 @@ public class BundleStatusComponentProvider extends ComponentProviderAdapter {
 		addBundlesAction("DisableBundles", "Disable selected bundle(s)",
 			new GIcon("icon.plugin.bundlemanager.disable"), this::doDisableBundles);
 
-		addBundlesAction("CleanBundles", "Clean selected bundle build cache(s)",
-			Icons.CLEAR_ICON, this::doCleanBundleBuildCaches);
+		addBundlesAction("CleanBundles", "Clean selected bundle build cache(s)", Icons.CLEAR_ICON,
+			this::doCleanBundleBuildCaches);
 
 		icon = Icons.ADD_ICON;
 		new ActionBuilder("AddBundles", this.getName()).popupMenuPath("Add bundle(s)")

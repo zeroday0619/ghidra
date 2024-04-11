@@ -77,12 +77,12 @@ public class PdbDeveloperApplyDummyScript extends GhidraScript {
 		memory.createUninitializedBlock(pdbFileName, program.getImageBase(),
 			Memory.MAX_BLOCK_SIZE / 16, false);
 
-		try (AbstractPdb pdb = PdbParser.parse(pdbFile.getPath(), pdbReaderOptions, monitor)) {
+		try (AbstractPdb pdb = PdbParser.parse(pdbFile, pdbReaderOptions, monitor)) {
 			monitor.setMessage("PDB: Parsing " + pdbFile + "...");
 			pdb.deserialize();
-			DefaultPdbApplicator applicator = new DefaultPdbApplicator(pdb);
-			applicator.applyTo(program, program.getDataTypeManager(), program.getImageBase(),
-				pdbApplicatorOptions, log);
+			DefaultPdbApplicator applicator = new DefaultPdbApplicator(pdb, program,
+				program.getDataTypeManager(), program.getImageBase(), pdbApplicatorOptions, log);
+			applicator.applyNoAnalysisState();
 		}
 		catch (PdbException | IOException e) {
 			log.appendMsg(getClass().getName(),

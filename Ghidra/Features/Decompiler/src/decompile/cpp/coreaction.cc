@@ -1667,8 +1667,8 @@ int4 ActionParamDouble::apply(Funcdata &data)
     for(int4 i=0;i<numparams;++i) {
       ProtoParameter *param = fp.getParam(i);
       Datatype *tp = param->getType();
-      type_metatype mt = tp->getMetatype();
-      if ((mt==TYPE_ARRAY)||(mt==TYPE_STRUCT)) continue; // Not double precision objects
+      if (!tp->isPrimitiveWhole())
+	continue;		// Not double precision objects
       Varnode *vn = data.findVarnodeInput(tp->getSize(),param->getAddress());
       if (vn == (Varnode *)0) continue;
       if (vn->getSize() < minDoubleSize) continue;
@@ -2162,6 +2162,26 @@ int4 ActionLikelyTrash::apply(Funcdata &data)
   return 0;
 }
 
+/// Return \b true if either the Varnode is a constant or if it is the not yet simplified
+/// INT_ADD of constants.
+/// \param vn is the given Varnode to test
+/// \return \b true if the Varnode will be a constant
+bool ActionRestructureVarnode::isDelayedConstant(Varnode *vn)
+
+{
+  if (vn->isConstant()) return true;
+  if (!vn->isWritten()) return false;
+  PcodeOp *op = vn->getDef();
+  if (op->code() != CPUI_INT_ADD) return false;
+  if (!op->getIn(1)->isConstant()) return false;
+  Varnode *cvn = op->getIn(0);
+  if (cvn->isConstant()) return true;
+  if (!cvn->isWritten()) return false;
+  PcodeOp *copy = cvn->getDef();
+  if (copy->code() != CPUI_COPY) return false;
+  return copy->getIn(0)->isConstant();
+}
+
 /// Test if the path to the given BRANCHIND originates from a constant but passes through INDIRECT operations.
 /// This indicates that the switch value is produced indirectly, so we mark these INDIRECT
 /// operations as \e not \e collapsible, to guarantee that the indirect value is not lost during analysis.
@@ -2176,9 +2196,16 @@ void ActionRestructureVarnode::protectSwitchPathIndirects(PcodeOp *op)
     uint4 evalType = curOp->getEvalType();
     if ((evalType & (PcodeOp::binary | PcodeOp::ternary)) != 0) {
       if (curOp->numInput() > 1) {
-	if (!curOp->getIn(1)->isConstant()) return;	// Multiple paths
+	if (isDelayedConstant(curOp->getIn(1)))
+	  curVn = curOp->getIn(0);
+	else if (isDelayedConstant(curOp->getIn(0)))
+	  curVn = curOp->getIn(1);
+	else
+	  return;		// Multiple paths
       }
-      curVn = curOp->getIn(0);
+      else {
+	curVn = curOp->getIn(0);
+      }
     }
     else if ((evalType & PcodeOp::unary) != 0)
       curVn = curOp->getIn(0);
@@ -2325,34 +2352,43 @@ void ActionSetCasts::checkPointerIssues(PcodeOp *op,Varnode *vn,Funcdata &data)
   }
 }
 
-/// \brief Test if the given cast conflict can be resolved by passing to the first structure field
+/// \brief Test if the given cast conflict can be resolved by passing to the first structure/array field
 ///
-/// Test if the given Varnode data-type is a pointer to a structure and if interpreting
+/// Test if the current data-type is a pointer to a structure and if interpreting
 /// the data-type as a pointer to the structure's first field will get it to match the
-/// desired data-type.
-/// \param vn is the given Varnode
-/// \param op is the PcodeOp reading the Varnode
-/// \param ct is the desired data-type
+/// required data-type.
+/// \param reqtype is the required data-type
+/// \param curtype is the current data-type
 /// \param castStrategy is used to determine if the data-types are compatible
 /// \return \b true if a pointer to the first field makes sense
-bool ActionSetCasts::testStructOffset0(Varnode *vn,PcodeOp *op,Datatype *ct,CastStrategy *castStrategy)
+bool ActionSetCasts::testStructOffset0(Datatype *reqtype,Datatype *curtype,CastStrategy *castStrategy)
 
 {
-  if (ct->getMetatype() != TYPE_PTR) return false;
-  Datatype *highType = vn->getHighTypeReadFacing(op);
-  if (highType->getMetatype() != TYPE_PTR) return false;
-  Datatype *highPtrTo = ((TypePointer *)highType)->getPtrTo();
-  if (highPtrTo->getMetatype() != TYPE_STRUCT) return false;
-  TypeStruct *highStruct = (TypeStruct *)highPtrTo;
-  if (highStruct->numDepend() == 0) return false;
-  vector<TypeField>::const_iterator iter = highStruct->beginField();
-  if ((*iter).offset != 0) return false;
-  Datatype *reqtype = ((TypePointer *)ct)->getPtrTo();
-  Datatype *curtype = (*iter).type;
-  if (reqtype->getMetatype() == TYPE_ARRAY)
-    reqtype = ((TypeArray *)reqtype)->getBase();
-  if (curtype->getMetatype() == TYPE_ARRAY)
-    curtype = ((TypeArray *)curtype)->getBase();
+  if (curtype->getMetatype() != TYPE_PTR) return false;
+  Datatype *highPtrTo = ((TypePointer *)curtype)->getPtrTo();
+  if (highPtrTo->getMetatype() == TYPE_STRUCT) {
+    TypeStruct *highStruct = (TypeStruct *)highPtrTo;
+    if (highStruct->numDepend() == 0) return false;
+    vector<TypeField>::const_iterator iter = highStruct->beginField();
+    if ((*iter).offset != 0) return false;
+    reqtype = ((TypePointer *)reqtype)->getPtrTo();
+    curtype = (*iter).type;
+    if (reqtype->getMetatype() == TYPE_ARRAY)
+      reqtype = ((TypeArray *)reqtype)->getBase();
+    if (curtype->getMetatype() == TYPE_ARRAY)
+      curtype = ((TypeArray *)curtype)->getBase();
+  }
+  else if (highPtrTo->getMetatype() == TYPE_ARRAY) {
+    TypeArray *highArray = (TypeArray *)highPtrTo;
+    reqtype = ((TypePointer *)reqtype)->getPtrTo();
+    curtype = highArray->getBase();
+  }
+  else {
+    return false;
+  }
+  if (reqtype->getMetatype() == TYPE_VOID) {
+    return false;		// Don't induce PTRSUB for "void *"
+  }
   return (castStrategy->castStandard(reqtype, curtype, true, true) == (Datatype *)0);
 }
 
@@ -2519,22 +2555,31 @@ int4 ActionSetCasts::castOutput(PcodeOp *op,Funcdata &data,CastStrategy *castStr
       }
     }
   }
+  OpCode opc = CPUI_CAST;
   if (!force) {
     outct = outHighResolve;	// Type of result
-    ct = castStrategy->castStandard(outct,tokenct,false,true);
-    if (ct == (Datatype *)0) return 0;
+    if (outct->getMetatype() == TYPE_PTR && testStructOffset0(outct, tokenct, castStrategy)) {
+      opc = CPUI_PTRSUB;
+    }
+    else {
+      ct = castStrategy->castStandard(outct,tokenct,false,true);
+      if (ct == (Datatype *)0) return 0;
+    }
   }
 				// Generate the cast op
   vn = data.newUnique(outvn->getSize());
   vn->updateType(tokenct,false,false);
   vn->setImplied();
-  newop = data.newOp(1,op->getAddr());
+  newop = data.newOp((opc != CPUI_CAST) ? 2 : 1,op->getAddr());
 #ifdef CPUI_STATISTICS
   data.getArch()->stats->countCast();
 #endif
-  data.opSetOpcode(newop,CPUI_CAST);
+  data.opSetOpcode(newop,opc);
   data.opSetOutput(newop,outvn);
   data.opSetInput(newop,vn,0);
+  if (opc != CPUI_CAST) {
+    data.opSetInput(newop,data.newConstant(4, 0),1);
+  }
   data.opSetOutput(op,vn);
   data.opInsertAfter(newop,op); // Cast comes AFTER this operation
   if (tokenct->needsResolution())
@@ -2612,7 +2657,7 @@ int4 ActionSetCasts::castInput(PcodeOp *op,int4 slot,Funcdata &data,CastStrategy
     if (vn->getType() == ct)
       return 1;
   }
-  else if (testStructOffset0(vn, op, ct, castStrategy)) {
+  else if (ct->getMetatype() == TYPE_PTR && testStructOffset0(ct, vn->getHighTypeReadFacing(op), castStrategy)) {
     // Insert a PTRSUB(vn,#0) instead of a CAST
     newop = insertPtrsubZero(op, slot, ct, data);
     if (vn->getHigh()->getType()->needsResolution())
@@ -2663,7 +2708,7 @@ int4 ActionSetCasts::apply(Funcdata &data)
       if (opc == CPUI_PTRADD) {	// Check for PTRADD that no longer fits its pointer
 	int4 sz = (int4)op->getIn(2)->getOffset();
 	TypePointer *ct = (TypePointer *)op->getIn(0)->getHighTypeReadFacing(op);
-	if ((ct->getMetatype() != TYPE_PTR)||(ct->getPtrTo()->getSize() != AddrSpace::addressToByteInt(sz, ct->getWordSize())))
+	if ((ct->getMetatype() != TYPE_PTR)||(ct->getPtrTo()->getAlignSize() != AddrSpace::addressToByteInt(sz, ct->getWordSize())))
 	  data.opUndoPtradd(op,true);
       }
       else if (opc == CPUI_PTRSUB) {	// Check for PTRSUB that no longer fits pointer

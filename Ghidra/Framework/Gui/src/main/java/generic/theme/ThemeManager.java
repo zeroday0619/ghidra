@@ -31,6 +31,7 @@ import ghidra.util.datastruct.WeakDataStructureFactory;
 import ghidra.util.datastruct.WeakSet;
 import resources.ResourceManager;
 import utilities.util.reflection.ReflectionUtilities;
+import utility.function.Callback;
 
 /**
  * This class manages application themes and their values. The ThemeManager is an abstract
@@ -70,6 +71,7 @@ public abstract class ThemeManager {
 	protected LafType activeLafType = activeTheme.getLookAndFeelType();
 	protected boolean useDarkDefaults = activeTheme.useDarkDefaults();
 
+	// this use our normalized ids (e.g., 'laf.')
 	protected GThemeValueMap javaDefaults = new GThemeValueMap();
 	protected GThemeValueMap currentValues = new GThemeValueMap();
 
@@ -80,6 +82,8 @@ public abstract class ThemeManager {
 	private WeakSet<ThemeListener> themeListeners =
 		WeakDataStructureFactory.createCopyOnReadWeakSet();
 
+	private boolean isUpdating;
+
 	public static ThemeManager getInstance() {
 		return INSTANCE;
 	}
@@ -89,10 +93,11 @@ public abstract class ThemeManager {
 			// default behavior is only install to INSTANCE if first time
 			INSTANCE = this;
 		}
-		applicationDefaults = getApplicationDefaults();
+
+		applicationDefaults = loadApplicationDefaults();
 	}
 
-	protected ApplicationThemeDefaults getApplicationDefaults() {
+	protected ApplicationThemeDefaults loadApplicationDefaults() {
 		return new PropertyFileThemeDefaults();
 	}
 
@@ -100,9 +105,35 @@ public abstract class ThemeManager {
 		Gui.setThemeManager(this);
 	}
 
+	/**
+	 * This method is called to create the internal set of theme value used by the application. To
+	 * do this, we use a layered approach to install values, with the last values added overwriting
+	 * any pre-existing values with the same key.  The values are added in the following order:
+	 * <pre>
+	 * java defaults -> light values -> dark values -> look and feel values -> property file values -> theme values
+	 * </pre>
+	 * <p>
+	 * At the point this method is called, this is the state of these various values:
+	 * <ul>
+	 *     <li>The 'javaValues' are normalized in the form of 'laf.font.TextArea'
+	 *     </li>
+	 *     <li>The 'applicationDefaults' contains values loaded from the {@code theme.properties}
+	 *     files:
+	 *     <pre>
+	 *     font.listing.base
+	 *     font.monospaced
+	 *     [color]Viewport.background = color.bg
+	 *     [laf.font]TextArea.font = font.monospaced
+	 *     [laf.boolean]Button.rollover = true
+	 *     </pre>
+	 *     </li>
+	 *     <li>The 'activeTheme' values are those loaded by the current theme, which has any changes
+	 *     made to the default values
+	 *     </li>
+	 * </ul>
+	 */
 	protected void buildCurrentValues() {
 		GThemeValueMap map = new GThemeValueMap();
-
 		map.load(javaDefaults);
 		map.load(applicationDefaults.getLightValues());
 		if (useDarkDefaults) {
@@ -501,6 +532,16 @@ public abstract class ThemeManager {
 	}
 
 	/**
+	 * Returns true if any theme values have changed.  This does not take into account the current
+	 * Look and Feel.   Use {@link #hasThemeChanges()} to also account for changes to the Look and
+	 * Feel.
+	 * @return true if any theme values have changed
+	 */
+	public boolean hasThemeValueChanges() {
+		return false;
+	}
+
+	/**
 	 * Returns true if an color for the given Id has been defined
 	 * @param id the id to check for an existing color.
 	 * @return true if an color for the given Id has been defined
@@ -538,6 +579,21 @@ public abstract class ThemeManager {
 	}
 
 	/**
+	 * Binds the component to the font identified by the given font id. Whenever the font for
+	 * the font id changes, the component will updated with the new font.
+	 * <p>
+	 * This method is fairly niche and should not be called by most clients.  Instead, call
+	 * {@link #registerFont(Component, String)}.
+	 *
+	 * @param component the component to set/update the font
+	 * @param fontId the id of the font to register with the given component
+	 * @param fontStyle the font style
+	 */
+	public void registerFont(Component component, String fontId, int fontStyle) {
+		// do nothing
+	}
+
+	/**
 	 * Returns true if the current theme use dark default values.
 	 * @return true if the current theme use dark default values.
 	 */
@@ -560,6 +616,24 @@ public abstract class ThemeManager {
 			case UNSUPPORTED:
 			default:
 				return new NimbusTheme();
+		}
+	}
+
+	/**
+	 * Returns true if the theme system is in the process of updating
+	 * @return true if the theme system is in the process of updating
+	 */
+	public boolean isUpdatingTheme() {
+		return isUpdating;
+	}
+
+	protected void update(Callback callback) {
+		isUpdating = true;
+		try {
+			callback.call();
+		}
+		finally {
+			isUpdating = false;
 		}
 	}
 

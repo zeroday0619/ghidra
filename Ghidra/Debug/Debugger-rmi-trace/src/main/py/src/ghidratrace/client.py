@@ -61,9 +61,10 @@ class Receiver(Thread):
             result = self.client._handle_invoke_method(request)
             Client._write_value(
                 reply.xreply_invoke_method.return_value, result)
-        except Exception as e:
-            reply.xreply_invoke_method.error = ''.join(
-                traceback.format_exc())
+        except BaseException as e:
+            print("Error caused by front end")
+            traceback.print_exc()
+            reply.xreply_invoke_method.error = repr(e)
         self.client._send(reply)
 
     def _handle_reply(self, reply):
@@ -79,7 +80,7 @@ class Receiver(Thread):
                 result = request.handler(
                     getattr(reply, request.field_name))
                 request.set_result(result)
-            except Exception as e:
+            except BaseException as e:
                 request.set_exception(e)
 
     def _recv(self, field_name, handler):
@@ -92,7 +93,11 @@ class Receiver(Thread):
         dbg_seq = 0
         while not self._is_shutdown:
             #print("Receiving message")
-            reply = recv_delimited(self.client.s, bufs.RootMessage(), dbg_seq)
+            try:
+                reply = recv_delimited(self.client.s, bufs.RootMessage(), dbg_seq)
+            except BaseException as e:
+                self._is_shutdown = True
+                return
             #print(f"Got one: {reply.WhichOneof('msg')}")
             dbg_seq += 1
             try:
@@ -283,14 +288,19 @@ class Trace(object):
                 self._snap += 1
             return self._snap
 
-    def snapshot(self, description, datetime=None):
+    def snapshot(self, description, datetime=None, snap=None):
         """
         Create a snapshot.
 
         Future state operations implicitly modify this new snapshot.
+        The snap argument is optional.  If ommitted, this creates a snapshot immediately
+        after the last created snapshot.  If given, it creates the given snapshot.
         """
 
-        snap = self._next_snap()
+        if snap is None:
+            snap = self._next_snap()
+        else:
+            self._snap = snap
         self.client._snapshot(self.id, description, datetime, snap)
         return snap
 
@@ -328,6 +338,14 @@ class Trace(object):
         return self.client._delete_bytes(self.id, snap, range)
 
     def put_registers(self, space, values, snap=None):
+        """
+        TODO
+
+        values is a dictionary, where each key is a a register name, and the
+        value is a byte array. No matter the target architecture, the value is
+        given in big-endian byte order.
+        """
+
         if snap is None:
             snap = self.snap()
         return self.client._put_registers(self.id, snap, space, values)
@@ -389,10 +407,10 @@ class Trace(object):
             span = Lifespan(self.snap(), self.snap())
         return self._make_values(self.client._get_values(self.id, span, pattern))
 
-    def get_values_intersecting(self, rng, span=None):
+    def get_values_intersecting(self, rng, span=None, key=""):
         if span is None:
             span = Lifespan(self.snap(), self.snap())
-        return self._make_values(self.client._get_values_intersecting(self.id, span, rng))
+        return self._make_values(self.client._get_values_intersecting(self.id, span, rng, key))
 
     def _activate_object(self, object):
         self.client._activate_object(self.id, object)
@@ -425,6 +443,7 @@ class ParamDesc:
 class RemoteMethod:
     name: str
     action: str
+    display: str
     description: str
     parameters: List[RemoteParameter]
     return_schema: sch.Schema
@@ -484,11 +503,14 @@ class MethodRegistry(object):
             cls._to_display(p.annotation), cls._to_description(p.annotation))
 
     @classmethod
-    def create_method(cls, function, name=None, action=None, description=None) -> RemoteMethod:
+    def create_method(cls, function, name=None, action=None, display=None,
+                      description=None) -> RemoteMethod:
         if name is None:
             name = function.__name__
         if action is None:
             action = name
+        if display is None:
+            display = name
         if description is None:
             description = function.__doc__ or ''
         sig = inspect.signature(function)
@@ -496,14 +518,16 @@ class MethodRegistry(object):
         for p in sig.parameters.values():
             params.append(cls._make_param(p))
         return_schema = cls._to_schema(sig, sig.return_annotation)
-        return RemoteMethod(name, action, description, params, return_schema, function)
+        return RemoteMethod(name, action, display, description, params,
+                            return_schema, function)
 
-    def method(self, func=None, *, name=None, action=None, description='',
-               condition=True):
+    def method(self, func=None, *, name=None, action=None, display=None,
+               description='', condition=True):
 
         def _method(func):
             if condition:
-                method = self.create_method(func, name, action, description)
+                method = self.create_method(func, name, action, display,
+                                            description)
                 self.register_method(method)
             return func
 
@@ -529,8 +553,16 @@ class Batch(object):
     def append(self, fut):
         self.futures.append(fut)
 
+    @staticmethod
+    def _get_result(f, timeout):
+        try:
+            return f.result(timeout)
+        except BaseException as e:
+            print(f"Exception in batch operation: {repr(e)}")
+            return e
+
     def results(self, timeout=None):
-        return [f.result(timeout) for f in self.futures]
+        return [self._get_result(f, timeout) for f in self.futures]
 
 
 class Client(object):
@@ -669,6 +701,7 @@ class Client(object):
     def _write_method(to: bufs.Method, method: RemoteMethod):
         to.name = method.name
         to.action = method.action
+        to.display = method.display
         to.description = method.description
         Client._write_parameters(to.parameters, method.parameters)
         to.return_type.name = method.return_schema.name
@@ -720,7 +753,7 @@ class Client(object):
             return Client._read_obj_desc(msg.child_desc), sch.OBJECT
         raise ValueError("Could not read value: {}".format(msg))
 
-    def __init__(self, s, method_registry: MethodRegistry):
+    def __init__(self, s, description: str, method_registry: MethodRegistry):
         self._traces = {}
         self._next_trace_id = 1
         self.tlock = Lock()
@@ -732,7 +765,7 @@ class Client(object):
         self.slock = Lock()
         self.receiver.start()
         self._method_registry = method_registry
-        self._negotiate()
+        self.description = self._negotiate(description)
 
     def close(self):
         self.s.close()
@@ -1053,11 +1086,12 @@ class Client(object):
             return self._read_values(reply)
         return self._batch_or_now(root, 'reply_get_values', _handle)
 
-    def _get_values_intersecting(self, id, span, rng):
+    def _get_values_intersecting(self, id, span, rng, key):
         root = bufs.RootMessage()
         root.request_get_values_intersecting.oid.id = id
         self._write_span(root.request_get_values_intersecting.box.span, span)
         self._write_range(root.request_get_values_intersecting.box.range, rng)
+        root.request_get_values_intersecting.key = key
 
         def _handle(reply):
             return self._read_values(reply)
@@ -1082,15 +1116,16 @@ class Client(object):
             return reply.length
         return self._batch_or_now(root, 'reply_disassemble', _handle)
 
-    def _negotiate(self):
+    def _negotiate(self, description: str):
         root = bufs.RootMessage()
         root.request_negotiate.version = VERSION
+        root.request_negotiate.description = description
         self._write_methods(root.request_negotiate.methods,
                             self._method_registry._methods.values())
 
         def _handle(reply):
-            pass
-        self._now(root, 'reply_negotiate', _handle)
+            return reply.description
+        return self._now(root, 'reply_negotiate', _handle)
 
     def _handle_invoke_method(self, request):
         if request.HasField('oid'):

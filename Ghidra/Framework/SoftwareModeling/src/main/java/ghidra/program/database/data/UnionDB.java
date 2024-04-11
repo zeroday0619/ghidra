@@ -23,6 +23,7 @@ import db.Field;
 import ghidra.docking.settings.Settings;
 import ghidra.program.database.DBObjectCache;
 import ghidra.program.model.data.*;
+import ghidra.program.model.data.DataTypeConflictHandler.ConflictResult;
 import ghidra.program.model.mem.MemBuffer;
 import ghidra.util.Msg;
 
@@ -312,7 +313,7 @@ class UnionDB extends CompositeDB implements UnionInternal {
 		}
 		finally {
 			if (isResolveCacheOwner) {
-				dataMgr.flushResolveQueue(true);
+				dataMgr.processResolveQueue(true);
 			}
 			lock.release();
 		}
@@ -343,6 +344,9 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			DataTypeComponent dtc = otherComponents[i];
 			doAdd(resolvedDts[i], dtc.getLength(), dtc.getFieldName(), dtc.getComment(), false);
 		}
+
+		record.setString(CompositeDBAdapter.COMPOSITE_COMMENT_COL, union.getDescription());
+		compositeAdapter.updateRecord(record, false);
 
 		repack(false, false); // updates timestamp
 
@@ -719,12 +723,11 @@ class UnionDB extends CompositeDB implements UnionInternal {
 	}
 
 	@Override
-	public boolean isEquivalent(DataType dataType) {
-
+	protected boolean isEquivalent(DataType dataType, DataTypeConflictHandler handler) {
 		if (dataType == this) {
 			return true;
 		}
-		if (!(dataType instanceof UnionInternal)) {
+		if (!(dataType instanceof UnionInternal union)) {
 			return false;
 		}
 
@@ -743,7 +746,14 @@ class UnionDB extends CompositeDB implements UnionInternal {
 
 		try {
 			isEquivalent = false;
-			UnionInternal union = (UnionInternal) dataType;
+
+			if (handler != null &&
+				ConflictResult.USE_EXISTING == handler.resolveConflict(union, this)) {
+				// treat this type as equivalent if existing type will be used
+				isEquivalent = true;
+				return true;
+			}
+
 			if (getStoredPackingValue() != union.getStoredPackingValue() ||
 				getStoredMinimumAlignment() != union.getStoredMinimumAlignment()) {
 				// rely on component match instead of checking length 
@@ -755,8 +765,11 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			if (myComps.length != otherComps.length) {
 				return false;
 			}
+			if (handler != null) {
+				handler = handler.getSubsequentHandler();
+			}
 			for (int i = 0; i < myComps.length; i++) {
-				if (!myComps[i].isEquivalent(otherComps[i])) {
+				if (!DataTypeComponentDB.isEquivalent(myComps[i], otherComps[i], handler)) {
 					return false;
 				}
 			}
@@ -766,6 +779,11 @@ class UnionDB extends CompositeDB implements UnionInternal {
 			dataMgr.putCachedEquivalence(this, dataType, isEquivalent);
 		}
 		return true;
+	}
+
+	@Override
+	public boolean isEquivalent(DataType dt) {
+		return isEquivalent(dt, null);
 	}
 
 	private void shiftOrdinals(int ordinal, int deltaOrdinal) {

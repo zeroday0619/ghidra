@@ -15,6 +15,9 @@
  */
 package ghidra.pty;
 
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
+
 /**
  * A session led by the child pty
  * 
@@ -31,6 +34,8 @@ public interface PtySession {
 	 */
 	int waitExited() throws InterruptedException;
 
+	int waitExited(long timeout, TimeUnit unit) throws InterruptedException, TimeoutException;
+
 	/**
 	 * Take the greatest efforts to terminate the session (leader and descendants)
 	 * 
@@ -40,4 +45,11 @@ public interface PtySession {
 	 * whatever local resources are used in maintaining and controlling the remote session.
 	 */
 	void destroyForcibly();
+
+	/**
+	 * Get a human-readable description of the session
+	 * 
+	 * @return the description
+	 */
+	String description();
 }

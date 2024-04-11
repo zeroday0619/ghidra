@@ -43,13 +43,11 @@ import docking.widgets.table.DefaultEnumeratedColumnTableModel;
 import docking.widgets.tree.GTree;
 import generic.jar.ResourceFile;
 import generic.theme.GColor;
-import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.DebuggerPluginPackage;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources;
 import ghidra.app.plugin.core.debug.gui.DebuggerResources.*;
 import ghidra.app.plugin.core.debug.gui.objects.actions.*;
 import ghidra.app.plugin.core.debug.gui.objects.components.*;
-import ghidra.app.plugin.core.debug.mapping.DebuggerMemoryMapper;
 import ghidra.app.script.*;
 import ghidra.app.services.*;
 import ghidra.app.services.DebuggerTraceManagerService.ActivationCause;
@@ -65,6 +63,9 @@ import ghidra.dbg.target.TargetMethod.TargetParameterMap;
 import ghidra.dbg.target.TargetSteppable.TargetStepKind;
 import ghidra.dbg.util.DebuggerCallbackReorderer;
 import ghidra.dbg.util.PathUtils;
+import ghidra.debug.api.model.DebuggerMemoryMapper;
+import ghidra.debug.api.model.TraceRecorder;
+import ghidra.debug.api.tracemgr.DebuggerCoordinates;
 import ghidra.framework.model.Project;
 import ghidra.framework.options.AutoOptions;
 import ghidra.framework.options.SaveState;
@@ -134,8 +135,8 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	private final AutoService.Wiring autoServiceWiring;
 
 	@AutoOptionDefined(
-		name = "Default Extended Step",
-		description = "The default string for the extended step command")
+			name = "Default Extended Step",
+			description = "The default string for the extended step command")
 	String extendedStep = "";
 
 	@SuppressWarnings("unused")
@@ -350,7 +351,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		if (pane != null) {
 			if (currentModel != null) {
 				currentModel.fetchModelRoot().thenAccept(this::refresh).exceptionally(ex -> {
-					plugin.objectError("Error refreshing model root");
+					plugin.objectError("Error refreshing model root", ex);
 					return null;
 				});
 			}
@@ -553,7 +554,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 					table.setColumns();
 					// TODO: What with attrs?
 				}).exceptionally(ex -> {
-					plugin.objectError("Failed to fetch attributes");
+					plugin.objectError("Failed to fetch attributes", ex);
 					return null;
 				});
 			}
@@ -568,7 +569,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	public void addTargetToMap(ObjectContainer container) {
 		DebuggerObjectsProvider provider = container.getProvider();
 		if (!this.equals(provider)) {
-			plugin.objectError("TargetMap corrupted");
+			plugin.objectError("TargetMap corrupted", null);
 		}
 		TargetObject targetObject = container.getTargetObject();
 		if (targetObject != null && !container.isLink()) {
@@ -1332,8 +1333,8 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 	*/
 
 	protected <T extends TargetObject> void performAction(ActionContext context,
-			boolean fallbackRoot, Class<T> cls,
-			Function<T, CompletableFuture<Void>> func, String errorMsg) {
+			boolean fallbackRoot, Class<T> cls, Function<T, CompletableFuture<Void>> func,
+			String errorMsg) {
 		TargetObject obj = getObjectFromContext(context);
 		if (obj == null && fallbackRoot) {
 			obj = root.getTargetObject();
@@ -1391,7 +1392,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			}
 			attachDialog.fetchAndDisplayAttachable();
 			tool.showDialog(attachDialog);
-			return AsyncUtils.NIL;
+			return AsyncUtils.nil();
 		}, "Couldn't attach");
 	}
 
@@ -1484,8 +1485,8 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		ProgramLocation currentLocation = listingService.getCurrentLocation();
 		ProgramSelection currentSelection = listingService.getCurrentSelection();
 
-		GhidraState state = new GhidraState(tool, project, currentProgram,
-			currentLocation, currentSelection, null);
+		GhidraState state =
+			new GhidraState(tool, project, currentProgram, currentLocation, currentSelection, null);
 
 		PrintWriter writer = consoleService.getStdOut();
 		TaskMonitor monitor = TaskMonitor.DUMMY;
@@ -1547,7 +1548,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			if (valid != null) {
 				startRecording(valid, true);
 			}
-			return AsyncUtils.NIL;
+			return AsyncUtils.nil();
 		}, "Couldn't record");
 	}
 
@@ -1590,7 +1591,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		performAction(context, false, TargetBreakpointSpecContainer.class, container -> {
 			breakpointDialog.setContainer(container);
 			tool.showDialog(breakpointDialog);
-			return AsyncUtils.NIL;
+			return AsyncUtils.nil();
 		}, "Couldn't set breakpoint");
 	}
 
@@ -1620,12 +1621,12 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			Map<String, ParameterDescription<?>> configParameters =
 				configurable.getConfigurableOptions();
 			if (configParameters.isEmpty()) {
-				return AsyncUtils.NIL;
+				return AsyncUtils.nil();
 			}
 			Map<String, ?> args = configDialog.promptArguments(configParameters);
 			if (args == null) {
 				// User cancelled
-				return AsyncUtils.NIL;
+				return AsyncUtils.nil();
 			}
 			AsyncFence fence = new AsyncFence();
 			for (Entry<String, ?> entry : args.entrySet()) {
@@ -1641,14 +1642,14 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 			if (t != null) {
 				navigateToSelectedObject(t, null);
 			}
-			return AsyncUtils.NIL;
+			return AsyncUtils.nil();
 		}, "Couldn't navigate");
 	}
 
 	public void initiateConsole(ActionContext context) {
 		performAction(context, false, TargetInterpreter.class, interpreter -> {
 			getPlugin().showConsole(interpreter);
-			return AsyncUtils.NIL;
+			return AsyncUtils.nil();
 		}, "Couldn't show interpreter");
 	}
 
@@ -1684,7 +1685,7 @@ public class DebuggerObjectsProvider extends ComponentProviderAdapter
 		TargetObject result = null;
 		try {
 			result = DebugModelConventions.findSuitable(TargetExecutionStateful.class, object)
-				.get(100, TimeUnit.MILLISECONDS);
+					.get(100, TimeUnit.MILLISECONDS);
 		}
 		catch (Exception e) {
 			// IGNORE

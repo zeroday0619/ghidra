@@ -20,26 +20,26 @@ import java.util.*;
 
 import org.apache.commons.lang3.StringUtils;
 
-import docking.options.OptionsService;
 import generic.cache.CachingPool;
 import generic.cache.CountingBasicFactory;
 import generic.concurrent.QCallback;
-import ghidra.GhidraOptions;
 import ghidra.app.decompiler.*;
 import ghidra.app.decompiler.DecompileOptions.CommentStyleEnum;
+import ghidra.app.decompiler.component.DecompilerUtils;
 import ghidra.app.decompiler.parallel.ChunkingParallelDecompiler;
 import ghidra.app.decompiler.parallel.ParallelDecompiler;
 import ghidra.app.util.*;
 import ghidra.framework.model.DomainObject;
-import ghidra.framework.options.ToolOptions;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.data.*;
 import ghidra.program.model.listing.*;
+import ghidra.program.model.symbol.Equate;
 import ghidra.util.HelpLocation;
 import ghidra.util.Msg;
 import ghidra.util.exception.CancelledException;
 import ghidra.util.task.*;
+import util.CollectionUtils;
 
 public class CppExporter extends Exporter {
 
@@ -121,6 +121,7 @@ public class CppExporter extends Exporter {
 
 		try {
 			if (emitDataTypeDefinitions) {
+				writeEquates(program, header, headerWriter, cFileWriter, chunkingMonitor);
 				writeProgramDataTypes(program, header, headerWriter, cFileWriter, chunkingMonitor);
 			}
 			chunkingMonitor.checkCancelled();
@@ -242,20 +243,8 @@ public class CppExporter extends Exporter {
 
 	private void configureOptions(Program program) {
 		if (!userSuppliedOptions) {
-			options = new DecompileOptions();
 
-			if (provider != null) {
-				OptionsService service = provider.getService(OptionsService.class);
-				if (service != null) {
-					ToolOptions fieldOptions =
-						service.getOptions(GhidraOptions.CATEGORY_BROWSER_FIELDS);
-					ToolOptions opt = service.getOptions("Decompiler");
-					options.grabFromToolAndProgram(fieldOptions, opt, program);
-				}
-			}
-			else {
-				options.grabFromProgram(program);	// Let headless pull program specific options
-			}
+			options = DecompilerUtils.getDecompileOptions(provider, program);
 
 			if (isUseCppStyleComments) {
 				options.setCommentStyle(CommentStyleEnum.CPPStyle);
@@ -311,6 +300,31 @@ public class CppExporter extends Exporter {
 			cFileWriter.println("");
 		}
 
+	}
+
+	private void writeEquates(Program program, File header, PrintWriter headerWriter,
+			PrintWriter cFileWriter, TaskMonitor monitor) throws CancelledException {
+		boolean equatesPresent = false;
+		for (Equate equate : CollectionUtils.asIterable(program.getEquateTable().getEquates())) {
+			monitor.checkCancelled();
+			equatesPresent = true;
+			String define =
+				"#define %s %s".formatted(equate.getDisplayName(), equate.getDisplayValue());
+			if (headerWriter != null) {
+				headerWriter.println(define);
+			}
+			else if (cFileWriter != null) {
+				cFileWriter.println(define);
+			}
+		}
+		if (equatesPresent) {
+			if (headerWriter != null) {
+				headerWriter.println();
+			}
+			else if (cFileWriter != null) {
+				cFileWriter.println();
+			}
+		}
 	}
 
 	private File getHeaderFile(File file) {

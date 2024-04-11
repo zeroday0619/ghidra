@@ -17,7 +17,8 @@ package ghidra.program.model.data;
 
 import java.io.Closeable;
 import java.io.IOException;
-import java.util.LinkedList;
+import java.util.Map;
+import java.util.Set;
 
 import javax.help.UnsupportedOperationException;
 
@@ -26,6 +27,7 @@ import com.google.common.collect.ImmutableList;
 import db.*;
 import db.util.ErrorHandler;
 import generic.jar.ResourceFile;
+import ghidra.framework.data.OpenMode;
 import ghidra.framework.model.RuntimeIOException;
 import ghidra.framework.store.LockException;
 import ghidra.program.database.DBStringMapAdapter;
@@ -54,12 +56,13 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	private int transactionCount;
 	private Long transaction;
 	private boolean commitTransaction;
+	private boolean isImmutable;
 
 	private LanguageTranslator languageUpgradeTranslator;
 	private String programArchitectureSummary; // summary of expected program architecture
 
 	protected String name;
-	
+
 	public static enum ArchiveWarningLevel {
 		INFO, WARN, ERROR;
 	}
@@ -169,13 +172,13 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	 * may be appropriate to use {@link #getWarning() check for warnings} prior to use.
 	 * 
 	 * @param packedDbfile packed datatype archive file (i.e., *.gdt resource).
-	 * @param openMode open mode CREATE, READ_ONLY or UPDATE (see {@link DBConstants})
+	 * @param openMode open mode CREATE, READ_ONLY or UPDATE
 	 * @param monitor the progress monitor
 	 * @throws IOException a low-level IO error.  This exception may also be thrown
 	 * when a version error occurs (cause is VersionException).
 	 * @throws CancelledException if task cancelled
 	 */
-	protected StandAloneDataTypeManager(ResourceFile packedDbfile, int openMode,
+	protected StandAloneDataTypeManager(ResourceFile packedDbfile, OpenMode openMode,
 			TaskMonitor monitor) throws IOException, CancelledException {
 		super(packedDbfile, openMode, monitor);
 	}
@@ -189,7 +192,7 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	 * may be appropriate to use {@link #getWarning() check for warnings} prior to use.
 	 * 
 	 * @param handle open database  handle
-	 * @param openMode open mode CREATE, READ_ONLY or UPDATE (see {@link DBConstants})
+	 * @param openMode open mode CREATE, READ_ONLY or UPDATE
 	 * @param errHandler the database I/O error handler
 	 * @param lock the program synchronization lock
 	 * @param monitor the progress monitor
@@ -197,13 +200,21 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	 * @throws VersionException if the database does not match the expected version.
 	 * @throws IOException if a database I/O error occurs.
 	 */
-	protected StandAloneDataTypeManager(DBHandle handle, int openMode, ErrorHandler errHandler,
+	protected StandAloneDataTypeManager(DBHandle handle, OpenMode openMode, ErrorHandler errHandler,
 			Lock lock, TaskMonitor monitor)
 			throws CancelledException, VersionException, IOException {
 		super(handle, null, openMode, null, errHandler, lock, monitor);
-		if (openMode != DBConstants.CREATE && hasDataOrganizationChange()) {
+		if (openMode != OpenMode.CREATE && hasDataOrganizationChange(true)) {
 			handleDataOrganizationChange(openMode, monitor);
 		}
+	}
+
+	/**
+	 * Set instance as immutable by disabling use of transactions.  Attempts to start a transaction
+	 * will result in a {@link TerminatedTransactionException}.
+	 */
+	protected void setImmutable() {
+		isImmutable = true;
 	}
 
 	/**
@@ -259,11 +270,10 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 					ProgramArchitecture arch = getProgramArchitecture();
 					LanguageDescription languageDescription =
 						arch.getLanguage().getLanguageDescription();
-					msg += " '" + getName() +
-						"'\n   Language: " +
+					msg += " '" + getName() + "'\n   Language: " +
 						languageDescription.getLanguageID() + " Version " +
-						languageDescription.getVersion() + ".x" +
-						", CompilerSpec: " + arch.getCompilerSpec().getCompilerSpecID();
+						languageDescription.getVersion() + ".x" + ", CompilerSpec: " +
+						arch.getCompilerSpec().getCompilerSpecID();
 				}
 				break;
 			case DATA_ORG_CHANGED:
@@ -303,11 +313,11 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	}
 
 	@Override
-	protected void initializeOtherAdapters(int openMode, TaskMonitor monitor)
+	protected void initializeOtherAdapters(OpenMode openMode, TaskMonitor monitor)
 			throws CancelledException, IOException, VersionException {
 
 		warning = ArchiveWarning.NONE;
-		if (openMode == DBConstants.CREATE) {
+		if (openMode == OpenMode.CREATE) {
 			saveDataOrganization(); // save default dataOrg
 			return; // optional program architecture is set after initialization is complete
 		}
@@ -346,8 +356,7 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 		LanguageVersionException languageVersionExc = null;
 		try {
 			language = DefaultLanguageService.getLanguageService().getLanguage(languageId);
-			languageVersionExc =
-				LanguageVersionException.check(language, languageVersion, -1); // don't care about minor version
+			languageVersionExc = LanguageVersionException.check(language, languageVersion, -1); // don't care about minor version
 		}
 		catch (LanguageNotFoundException e) {
 			warning = ArchiveWarning.LANGUAGE_NOT_FOUND;
@@ -373,12 +382,12 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 			languageUpgradeTranslator = languageVersionExc.getLanguageTranslator();
 
 			// language upgrade required
-			if (openMode == DBConstants.READ_ONLY) {
+			if (openMode == OpenMode.IMMUTABLE) {
 				// read-only mode - do not set program architecture - upgrade flag has been set
 				return;
 			}
 
-			if (openMode == DBConstants.UPDATE) {
+			if (openMode == OpenMode.UPDATE) {
 				throw languageVersionExc;
 			}
 
@@ -417,7 +426,7 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 		final Language lang = language;
 		final CompilerSpec cspec = compilerSpec;
-		final AddressFactory addrFactory = new ProgramAddressFactory(lang, cspec);
+		final AddressFactory addrFactory = new ProgramAddressFactory(lang, cspec, s -> null);
 
 		super.setProgramArchitecture(new ProgramArchitecture() {
 
@@ -443,14 +452,13 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	}
 
 	@Override
-	protected void handleDataOrganizationChange(int openMode, TaskMonitor monitor)
+	protected void handleDataOrganizationChange(OpenMode openMode, TaskMonitor monitor)
 			throws LanguageVersionException, CancelledException, IOException {
-		if (openMode == DBConstants.READ_ONLY) {
+		if (openMode == OpenMode.IMMUTABLE) {
 			warning = ArchiveWarning.DATA_ORG_CHANGED;
 		}
 		super.handleDataOrganizationChange(openMode, monitor);
 	}
-
 
 	/**
 	 * Get the program architecture information which has been associated with this 
@@ -507,8 +515,8 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 		if (variableStorageMgr == null) { // TODO: may re-use if translation performed
 			try {
-				variableStorageMgr = new VariableStorageManagerDB(dbHandle, null,
-					DBConstants.CREATE, errHandler, lock, TaskMonitor.DUMMY);
+				variableStorageMgr = new VariableStorageManagerDB(dbHandle, null, OpenMode.CREATE,
+					errHandler, lock, TaskMonitor.DUMMY);
 				variableStorageMgr.setProgramArchitecture(programArchitecture);
 			}
 			catch (VersionException | CancelledException e) {
@@ -544,7 +552,6 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 		return warning == ArchiveWarning.LANGUAGE_NOT_FOUND ||
 			warning == ArchiveWarning.COMPILER_SPEC_NOT_FOUND;
 	}
-
 
 	/**
 	 * Clear the program architecture setting and all architecture-specific data from this archive.
@@ -646,13 +653,13 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 		lock.acquire();
 		try {
-			
+
 			if (!isArchitectureChangeAllowed()) {
 				throw new UnsupportedOperationException(
 					"Program-architecture change not permitted");
 			}
-			
-			if (!dbHandle.canUpdate()) {
+
+			if (readOnlyMode) {
 				throw new ReadOnlyException("Read-only Archive: " + getName());
 			}
 
@@ -662,18 +669,18 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 					", CompilerSpec: " + compilerSpecId);
 
 			CompilerSpec compilerSpec = language.getCompilerSpecByID(compilerSpecId);
-			
+
 			// This type of datatype manager only uses VariableStorageManagerDB
 			VariableStorageManagerDB variableStorageMgr =
 				(VariableStorageManagerDB) getVariableStorageManager();
-			
+
 			int txId = startTransaction("Set Program Architecture");
 			try {
 				ProgramArchitectureTranslator translator = null;
-				
+
 				ProgramArchitecture oldArch = getProgramArchitecture();
 				if (oldArch != null || isProgramArchitectureMissing()) {
-					
+
 					if (updateOption == LanguageUpdateOption.CLEAR) {
 						deleteAllProgramArchitectureData(monitor);
 						variableStorageMgr = null;
@@ -696,7 +703,7 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 						if (VariableStorageManagerDB.exists(dbHandle)) {
 							try {
 								variableStorageMgr = new VariableStorageManagerDB(dbHandle, null,
-									DBConstants.UPDATE, errHandler, lock, monitor);
+									OpenMode.UPDATE, errHandler, lock, monitor);
 							}
 							catch (VersionException e) {
 								throw new IOException(
@@ -709,12 +716,12 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 							oldArch.getCompilerSpec().getCompilerSpecID(), language,
 							compilerSpecId);
 					}
-					
+
 					if (translator != null && variableStorageMgr != null) {
 						variableStorageMgr.setLanguage(translator, monitor);
 					}
 				}
-				
+
 				ProgramArchitecture programArchitecture = new ProgramArchitecture() {
 
 					@Override
@@ -782,8 +789,8 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 		if (getProgramArchitecture() != null || isProgramArchitectureUpgradeRequired() ||
 			isProgramArchitectureMissing()) {
-				throw new UnsupportedOperationException(
-					"Program-architecture change not permitted with this method");
+			throw new UnsupportedOperationException(
+				"Program-architecture change not permitted with this method");
 		}
 
 		if (store) {
@@ -816,7 +823,7 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 		defaultListener.categoryRenamed(this, CategoryPath.ROOT, CategoryPath.ROOT);
 	}
-	
+
 	@Override
 	public Transaction openTransaction(String description) throws IllegalStateException {
 		return new Transaction() {
@@ -838,6 +845,9 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 
 	@Override
 	public synchronized int startTransaction(String description) {
+		if (isImmutable) {
+			throw new TerminatedTransactionException("Transaction not permitted: read-only");
+		}
 		if (transaction == null) {
 			transaction = dbHandle.startTransaction();
 			commitTransaction = true;
@@ -874,12 +884,12 @@ public class StandAloneDataTypeManager extends DataTypeManagerDB implements Clos
 	}
 
 	@Override
-	protected void replaceDataTypeIDs(long oldID, long newID) {
+	protected void replaceDataTypesUsed(Map<Long, Long> dataTypeReplacementMap) {
 		// do nothing
 	}
 
 	@Override
-	protected void deleteDataTypeIDs(LinkedList<Long> deletedIds, TaskMonitor monitor) {
+	protected void deleteDataTypesUsed(Set<Long> deletedIds) {
 		// do nothing
 	}
 

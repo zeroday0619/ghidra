@@ -28,7 +28,6 @@ import ghidra.feature.vt.api.markuptype.*;
 import ghidra.feature.vt.api.util.*;
 import ghidra.framework.model.DomainFolder;
 import ghidra.framework.options.ToolOptions;
-import ghidra.framework.plugintool.PluginTool;
 import ghidra.program.model.address.AddressSet;
 import ghidra.program.model.address.AddressSetView;
 import ghidra.program.model.listing.Program;
@@ -64,8 +63,7 @@ public class CreateAppliedExactMatchingSessionScript extends GhidraScript {
 			return;
 		}
 
-		VTSession session =
-			VTSessionDB.createVTSession(name, sourceProgram, destinationProgram, this);
+		VTSession session = new VTSessionDB(name, sourceProgram, destinationProgram, this);
 
 		// it seems clunky to have to create this separately, but I'm not sure how else to do it
 		folder.createFile(name, session, monitor);
@@ -74,7 +72,6 @@ public class CreateAppliedExactMatchingSessionScript extends GhidraScript {
 
 		int sessionTransaction = session.startTransaction(description);
 		try {
-			PluginTool serviceProvider = state.getTool();
 			VTAssociationManager manager = session.getAssociationManager();
 
 			// should we have convenience methods in VTCorrelator that don't
@@ -87,16 +84,16 @@ public class CreateAppliedExactMatchingSessionScript extends GhidraScript {
 			VTProgramCorrelatorFactory factory;
 
 			factory = new ExactDataMatchProgramCorrelatorFactory();
-			correlateAndPossiblyApply(sourceProgram, destinationProgram, session, serviceProvider,
-				manager, sourceAddressSet, destinationAddressSet, factory);
+			correlateAndPossiblyApply(session, manager, sourceAddressSet, destinationAddressSet,
+				factory);
 
 			factory = new ExactMatchBytesProgramCorrelatorFactory();
-			correlateAndPossiblyApply(sourceProgram, destinationProgram, session, serviceProvider,
-				manager, sourceAddressSet, destinationAddressSet, factory);
+			correlateAndPossiblyApply(session, manager, sourceAddressSet, destinationAddressSet,
+				factory);
 
 			factory = new ExactMatchInstructionsProgramCorrelatorFactory();
-			correlateAndPossiblyApply(sourceProgram, destinationProgram, session, serviceProvider,
-				manager, sourceAddressSet, destinationAddressSet, factory);
+			correlateAndPossiblyApply(session, manager, sourceAddressSet, destinationAddressSet,
+				factory);
 		}
 		finally {
 			try {
@@ -110,8 +107,7 @@ public class CreateAppliedExactMatchingSessionScript extends GhidraScript {
 		}
 	}
 
-	private void correlateAndPossiblyApply(Program sourceProgram, Program destinationProgram,
-			VTSession session, PluginTool serviceProvider, VTAssociationManager manager,
+	private void correlateAndPossiblyApply(VTSession session, VTAssociationManager manager,
 			AddressSetView sourceAddressSet, AddressSetView destinationAddressSet,
 			VTProgramCorrelatorFactory factory)
 			throws CancelledException, VTAssociationStatusException {
@@ -121,7 +117,7 @@ public class CreateAppliedExactMatchingSessionScript extends GhidraScript {
 		AddressSetView restrictedDestinationAddresses =
 			excludeAcceptedMatches(session, destinationAddressSet, false);
 		VTOptions options = factory.createDefaultOptions();
-		VTProgramCorrelator correlator = factory.createCorrelator(serviceProvider, sourceProgram,
+		VTProgramCorrelator correlator = factory.createCorrelator(sourceProgram,
 			restrictedSourceAddresses, destinationProgram, restrictedDestinationAddresses, options);
 
 		VTMatchSet results = correlator.correlate(session, monitor);

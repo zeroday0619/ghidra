@@ -13,30 +13,33 @@
 #  See the License for the specific language governing permissions and
 #  limitations under the License.
 ##
+import functools
 import time
+import traceback
 
 import gdb
 
-from . import commands
+from . import commands, util
 
 
 class GhidraHookPrefix(gdb.Command):
     """Commands for exporting data to a Ghidra trace"""
 
     def __init__(self):
-        super().__init__('ghidra-hook', gdb.COMMAND_NONE, prefix=True)
+        super().__init__('hooks-ghidra', gdb.COMMAND_NONE, prefix=True)
 
 
 GhidraHookPrefix()
 
 
 class HookState(object):
-    __slots__ = ('installed', 'mem_catchpoint', 'batch')
+    __slots__ = ('installed', 'mem_catchpoint', 'batch', 'skip_continue')
 
     def __init__(self):
         self.installed = False
         self.mem_catchpoint = None
         self.batch = None
+        self.skip_continue = False
 
     def ensure_batch(self):
         if self.batch is None:
@@ -45,8 +48,13 @@ class HookState(object):
     def end_batch(self):
         if self.batch is None:
             return
-        commands.STATE.client.end_batch()
         self.batch = None
+        commands.STATE.client.end_batch()
+
+    def check_skip_continue(self):
+        skip = self.skip_continue
+        self.skip_continue = False
+        return skip
 
 
 class InferiorState(object):
@@ -70,6 +78,8 @@ class InferiorState(object):
         if first:
             commands.put_inferiors()
             commands.put_environment()
+        else:
+            commands.put_inferior_state(gdb.selected_inferior())
         if self.threads:
             commands.put_threads()
             self.threads = False
@@ -79,17 +89,20 @@ class InferiorState(object):
                 commands.put_frames()
                 self.visited.add(thread)
             frame = gdb.selected_frame()
-            hashable_frame = (thread, frame.level())
+            hashable_frame = (thread, util.get_level(frame))
             if first or hashable_frame not in self.visited:
-                commands.putreg(frame, frame.architecture().registers())
+                commands.putreg(
+                    frame, util.get_register_descs(frame.architecture(), 'general'))
                 commands.putmem("$pc", "1", from_tty=False)
                 commands.putmem("$sp", "1", from_tty=False)
                 self.visited.add(hashable_frame)
         if first or self.regions or self.threads or self.modules:
             # Sections, memory syscalls, or stack allocations
+            commands.put_modules()
+            self.modules = False
             commands.put_regions()
             self.regions = False
-        if first or self.modules:
+        elif first or self.modules:
             commands.put_modules()
             self.modules = False
         if first or self.breaks:
@@ -133,6 +146,27 @@ BRK_STATE = BrkState()
 INF_STATES = {}
 
 
+def log_errors(func):
+    '''
+    Wrap a function in a try-except that prints and reraises the
+    exception.
+
+    This is needed because pybag and/or the COM wrappers do not print
+    exceptions that occur during event callbacks.
+    '''
+
+    @functools.wraps(func)
+    def _func(*args, **kwargs):
+        try:
+            return func(*args, **kwargs)
+        except:
+            traceback.print_exc()
+            raise
+
+    return _func
+
+
+@log_errors
 def on_new_inferior(event):
     trace = commands.STATE.trace
     if trace is None:
@@ -155,6 +189,7 @@ def on_inferior_selected():
         commands.activate()
 
 
+@log_errors
 def on_inferior_deleted(event):
     trace = commands.STATE.trace
     if trace is None:
@@ -166,6 +201,7 @@ def on_inferior_deleted(event):
         commands.put_inferiors()  # TODO: Could just delete the one....
 
 
+@log_errors
 def on_new_thread(event):
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
@@ -198,11 +234,12 @@ def on_frame_selected():
     t = gdb.selected_thread()
     f = gdb.selected_frame()
     HOOK_STATE.ensure_batch()
-    with trace.open_tx("Frame {}.{}.{} selected".format(inf.num, t.num, f.level())):
+    with trace.open_tx("Frame {}.{}.{} selected".format(inf.num, t.num, util.get_level(f))):
         INF_STATES[inf.num].record()
         commands.activate()
 
 
+@log_errors
 def on_syscall_memory():
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
@@ -210,6 +247,7 @@ def on_syscall_memory():
     INF_STATES[inf.num].regions = True
 
 
+@log_errors
 def on_memory_changed(event):
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
@@ -223,8 +261,8 @@ def on_memory_changed(event):
                            pages=False, is_mi=False, from_tty=False)
 
 
+@log_errors
 def on_register_changed(event):
-    gdb.write("Register changed: {}".format(dir(event)))
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
         return
@@ -236,10 +274,13 @@ def on_register_changed(event):
     # For now, just record the lot
     HOOK_STATE.ensure_batch()
     with trace.open_tx("Register {} changed".format(event.regnum)):
-        commands.putreg(event.frame, event.frame.architecture().registers())
+        commands.putreg(event.frame, util.get_register_descs(event.frame.architecture()))
 
 
+@log_errors
 def on_cont(event):
+    if (HOOK_STATE.check_skip_continue()):
+        return
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
         return
@@ -252,8 +293,10 @@ def on_cont(event):
         state.record_continued()
 
 
+@log_errors
 def on_stop(event):
     if hasattr(event, 'breakpoints') and HOOK_STATE.mem_catchpoint in event.breakpoints:
+        HOOK_STATE.skip_continue = True
         return
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
@@ -271,6 +314,7 @@ def on_stop(event):
     HOOK_STATE.end_batch()
 
 
+@log_errors
 def on_exited(event):
     inf = gdb.selected_inferior()
     if inf.num not in INF_STATES:
@@ -307,18 +351,22 @@ def modules_changed():
     INF_STATES[inf.num].modules = True
 
 
+@log_errors
 def on_clear_objfiles(event):
     modules_changed()
 
 
+@log_errors
 def on_new_objfile(event):
     modules_changed()
 
 
+@log_errors
 def on_free_objfile(event):
     modules_changed()
 
 
+@log_errors
 def on_breakpoint_created(b):
     inf = gdb.selected_inferior()
     notify_others_breaks(inf)
@@ -336,7 +384,10 @@ def on_breakpoint_created(b):
         ibobj.insert()
 
 
+@log_errors
 def on_breakpoint_modified(b):
+    if b == HOOK_STATE.mem_catchpoint:
+        return
     inf = gdb.selected_inferior()
     notify_others_breaks(inf)
     if inf.num not in INF_STATES:
@@ -354,10 +405,11 @@ def on_breakpoint_modified(b):
         # NOTE: Location may not apply to inferior, but whatever.
         for i in range(new_count, old_count):
             ikey = commands.INF_BREAK_KEY_PATTERN.format(
-                breaknum=b.number, locnum=i+1)
+                breaknum=b.number, locnum=i + 1)
             ibobj.set_value(ikey, None)
 
 
+@log_errors
 def on_breakpoint_deleted(b):
     inf = gdb.selected_inferior()
     notify_others_breaks(inf)
@@ -375,18 +427,20 @@ def on_breakpoint_deleted(b):
         trace.proxy_object_path(bpath).remove(tree=True)
         for i in range(old_count):
             ikey = commands.INF_BREAK_KEY_PATTERN.format(
-                breaknum=b.number, locnum=i+1)
+                breaknum=b.number, locnum=i + 1)
             ibobj.set_value(ikey, None)
 
 
+@log_errors
 def on_before_prompt():
     HOOK_STATE.end_batch()
 
 
 # This will be called by a catchpoint
 class GhidraTraceEventMemoryCommand(gdb.Command):
+
     def __init__(self):
-        super().__init__('ghidra-hook event-memory', gdb.COMMAND_NONE)
+        super().__init__('hooks-ghidra event-memory', gdb.COMMAND_NONE)
 
     def invoke(self, argument, from_tty):
         self.dont_repeat()
@@ -397,14 +451,17 @@ GhidraTraceEventMemoryCommand()
 
 
 def cmd_hook(name):
+
     def _cmd_hook(func):
+
         class _ActiveCommand(gdb.Command):
+
             def __init__(self):
                 # It seems we can't hook commands using the Python API....
-                super().__init__(f"ghidra-hook def-{name}", gdb.COMMAND_USER)
+                super().__init__(f"hooks-ghidra def-{name}", gdb.COMMAND_USER)
                 gdb.execute(f"""
                 define {name}
-                  ghidra-hook def-{name}
+                  hooks-ghidra def-{name}
                 end
                 """)
 
@@ -417,9 +474,11 @@ def cmd_hook(name):
             define {name}
             end
             """)
+
         func.hook = _ActiveCommand
         func.unhook = _unhook_command
         return func
+
     return _cmd_hook
 
 
@@ -438,7 +497,17 @@ def hook_frame():
     on_frame_selected()
 
 
-# TODO: Checks and workarounds for events missing in gdb 8
+@cmd_hook('hookpost-up')
+def hook_frame_up():
+    on_frame_selected()
+
+
+@cmd_hook('hookpost-down')
+def hook_frame_down():
+    on_frame_selected()
+
+
+# TODO: Checks and workarounds for events missing in gdb 9
 def install_hooks():
     if HOOK_STATE.installed:
         return
@@ -451,6 +520,8 @@ def install_hooks():
     gdb.events.new_thread.connect(on_new_thread)
     hook_thread.hook()
     hook_frame.hook()
+    hook_frame_up.hook()
+    hook_frame_down.hook()
 
     # Respond to user-driven state changes: (Not target-driven)
     gdb.events.memory_changed.connect(on_memory_changed)
@@ -470,23 +541,26 @@ def install_hooks():
         HOOK_STATE.mem_catchpoint.enabled = True
     else:
         breaks_before = set(gdb.breakpoints())
-        gdb.execute("""
-            catch syscall group:memory
-            commands
-            silent
-            ghidra-hook event-memory
-            cont
-            end
-            """)
-        HOOK_STATE.mem_catchpoint = (
-            set(gdb.breakpoints()) - breaks_before).pop()
+        try:
+            gdb.execute("""
+                catch syscall group:memory
+                commands
+                silent
+                hooks-ghidra event-memory
+                cont
+                end
+                """)
+            HOOK_STATE.mem_catchpoint = (set(gdb.breakpoints()) - breaks_before).pop()
+        except Exception as e:
+            print(f"Error setting memory catchpoint: {e}")
 
     gdb.events.cont.connect(on_cont)
     gdb.events.stop.connect(on_stop)
     gdb.events.exited.connect(on_exited)  # Inferior exited
 
     gdb.events.clear_objfiles.connect(on_clear_objfiles)
-    gdb.events.free_objfile.connect(on_free_objfile)
+    if hasattr(gdb.events, 'free_objfile'):
+        gdb.events.free_objfile.connect(on_free_objfile)
     gdb.events.new_objfile.connect(on_new_objfile)
 
     gdb.events.breakpoint_created.connect(on_breakpoint_created)
@@ -508,6 +582,8 @@ def remove_hooks():
     gdb.events.new_thread.disconnect(on_new_thread)
     hook_thread.unhook()
     hook_frame.unhook()
+    hook_frame_up.unhook()
+    hook_frame_down.unhook()
 
     gdb.events.memory_changed.disconnect(on_memory_changed)
     gdb.events.register_changed.disconnect(on_register_changed)
@@ -518,7 +594,8 @@ def remove_hooks():
     gdb.events.exited.disconnect(on_exited)  # Inferior exited
 
     gdb.events.clear_objfiles.disconnect(on_clear_objfiles)
-    gdb.events.free_objfile.disconnect(on_free_objfile)
+    if hasattr(gdb.events, 'free_objfile'):
+        gdb.events.free_objfile.disconnect(on_free_objfile)
     gdb.events.new_objfile.disconnect(on_new_objfile)
 
     gdb.events.breakpoint_created.disconnect(on_breakpoint_created)

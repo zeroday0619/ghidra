@@ -19,8 +19,9 @@ import java.awt.*;
 import java.awt.event.*;
 import java.beans.PropertyChangeEvent;
 import java.beans.PropertyChangeListener;
-import java.util.*;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.WeakHashMap;
 
 import javax.swing.*;
 import javax.swing.border.LineBorder;
@@ -37,6 +38,7 @@ import docking.widgets.label.GLabel;
 import generic.theme.GColor;
 import generic.theme.GThemeDefaults.Colors;
 import ghidra.app.util.AddressInput;
+import ghidra.framework.preferences.Preferences;
 import ghidra.program.model.address.*;
 import ghidra.program.model.listing.*;
 import ghidra.program.model.scalar.Scalar;
@@ -55,6 +57,8 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 
 	private static final int MAX_HISTORY_LENGTH = 10;
 
+	private static final String INCLUDE_OTHER_OVERLAY_PREFERENCE = "RefEditIncludeOtherOverlays";
+
 	private WeakHashMap<Program, List<Address>> addrHistoryMap = new WeakHashMap<>();
 
 	private ReferencesPlugin plugin;
@@ -67,6 +71,7 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 	private Reference editRef;
 	private JLabel addrLabel;
 	private AddressInput toAddressField;
+	private JCheckBox includeOtherOverlaysCheckbox;
 	private JButton addrHistoryButton;
 	private JCheckBox offsetCheckbox;
 	private JTextField offsetField;
@@ -112,17 +117,15 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 					toggleAddressHistoryPopup();
 				}
 			}
-
-			@Override
-			public void mouseReleased(MouseEvent e) {
-				// TODO Auto-generated method stub
-				super.mouseReleased(e);
-			}
 		});
 		addrHistoryButton.setText(null);
 		addrHistoryButton.setMargin(new Insets(0, 0, 0, 0));
 		addrHistoryButton.setFocusable(false);
 		addrHistoryButton.setToolTipText("Address History");
+
+		includeOtherOverlaysCheckbox = new JCheckBox("Include OTHER overlay spaces",
+			Boolean.getBoolean(Preferences.getProperty(INCLUDE_OTHER_OVERLAY_PREFERENCE, "false")));
+		includeOtherOverlaysCheckbox.addChangeListener(e -> refreshToAddressField());
 
 		refTypes = new GhidraComboBox<>(MEM_REF_TYPES);
 
@@ -135,6 +138,9 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 
 		add(addrLabel);
 		add(addrPanel);
+
+		add(new JLabel());
+		add(includeOtherOverlaysCheckbox);
 
 		add(new GLabel("Ref-Type:", SwingConstants.RIGHT));
 		add(refTypes);
@@ -181,8 +187,39 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 		}
 	}
 
+	private void refreshToAddressField() {
+		initializeToAddressField(toAddressField.getAddress());
+	}
+
+	private void initializeToAddressField(Address toAddr) {
+		toAddressField.setAddressFactory(fromCodeUnit.getProgram().getAddressFactory(), (s) -> {
+			if (s.isLoadedMemorySpace()) {
+				return true;
+			}
+			if (s.equals(fromCodeUnit.getAddress().getAddressSpace())) {
+				return true;
+			}
+			if (toAddr != null && s.equals(toAddr.getAddressSpace())) {
+				return true;
+			}
+			if (includeOtherOverlaysCheckbox.isSelected() && s.isOverlaySpace()) {
+				return true;
+			}
+			return false;
+		});
+		if (toAddr != null) {
+			toAddressField.setAddress(toAddr);
+			toAddressField.select();
+		}
+		else {
+			toAddressField.clear();
+		}
+		toAddressField.invalidate();
+	}
+
 	@Override
 	void initialize(CodeUnit fromCu, Reference editReference) {
+
 		isValidState = false;
 		this.fromCodeUnit = fromCu;
 		this.editRef = editReference;
@@ -198,8 +235,8 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 			toAddr = toAddr.subtractWrap(defaultOffset);
 		}
 
-		toAddressField.setAddressFactory(fromCu.getProgram().getAddressFactory(), false, false);
-		toAddressField.setAddress(toAddr);
+		initializeToAddressField(toAddr);
+
 		enableOffsetField(editReference.isOffsetReference());
 
 		RefType rt = editReference.getReferenceType();
@@ -214,6 +251,7 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 
 	@Override
 	boolean initialize(CodeUnit fromCu, int fromOpIndex, int fromSubIndex) {
+
 		isValidState = false;
 		this.editRef = null;
 		this.fromCodeUnit = fromCu;
@@ -222,8 +260,6 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 		Program p = fromCu.getProgram();
 
 		addrHistoryButton.setEnabled(getAddressHistorySize(p) != 0);
-
-		toAddressField.setAddressFactory(p.getAddressFactory(), false, false);
 
 		Address cuAddr = fromCu.getMinAddress();
 
@@ -237,15 +273,12 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 			Address toAddr = null;
 			if (p == program && location != null) {
 				toAddr = getSuggestedLocationAddress(program, location);
-			}
-			if (toAddr == null || toAddr.equals(cuAddr)) {
-				toAddressField.clear();
-			}
-			else {
-				toAddressField.setAddress(toAddr);
+				if (toAddr != null && toAddr.equals(cuAddr)) {
+					toAddr = null;
+				}
 			}
 			enableOffsetField(false);
-			toAddressField.select();
+			initializeToAddressField(toAddr);
 			return setOpIndex(fromOpIndex);
 		}
 
@@ -297,8 +330,7 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 			}
 			if (toAddr != null) {
 				Reference r = p.getReferenceManager()
-						.getReference(fromCu.getMinAddress(), toAddr,
-							fromOpIndex);
+						.getReference(fromCu.getMinAddress(), toAddr, fromOpIndex);
 				if (r != null) {
 					toAddr = null;
 					if (r.isOffsetReference()) {
@@ -310,13 +342,11 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 			}
 		}
 
-		if (toAddr != null && !toAddr.equals(cuAddr)) {
-			toAddressField.setAddress(toAddr);
-			toAddressField.select();
+		if (toAddr != null && toAddr.equals(cuAddr)) {
+			toAddr = null;
 		}
-		else {
-			toAddressField.clear();
-		}
+
+		initializeToAddressField(toAddr);
 
 		if (toAddr != null) {
 			rt = RefTypeFactory.getDefaultMemoryRefType(fromCu, fromOpIndex, toAddr, false);
@@ -582,25 +612,23 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 		historyWin.setLocation(p);
 
 		KeyboardFocusManager.getCurrentKeyboardFocusManager()
-				.addPropertyChangeListener(
-					"focusOwner", new PropertyChangeListener() {
-						boolean hasFocus = false;
+				.addPropertyChangeListener("focusOwner", new PropertyChangeListener() {
+					boolean hasFocus = false;
 
-						@Override
-						public void propertyChange(PropertyChangeEvent evt) {
-							Object focusOwner = evt.getNewValue();
-							if (focusOwner == displayTable || focusOwner == historyWin) {
-								hasFocus = true;
-							}
-							else if (hasFocus) {
-								hasFocus = false;
-								KeyboardFocusManager.getCurrentKeyboardFocusManager()
-										.removePropertyChangeListener(
-											"focusOwner", this);
-								hideAddressHistoryPopup();
-							}
+					@Override
+					public void propertyChange(PropertyChangeEvent evt) {
+						Object focusOwner = evt.getNewValue();
+						if (focusOwner == displayTable || focusOwner == historyWin) {
+							hasFocus = true;
 						}
-					});
+						else if (hasFocus) {
+							hasFocus = false;
+							KeyboardFocusManager.getCurrentKeyboardFocusManager()
+									.removePropertyChangeListener("focusOwner", this);
+							hideAddressHistoryPopup();
+						}
+					}
+				});
 
 		historyWin.setVisible(true);
 
@@ -669,17 +697,13 @@ class EditMemoryReferencePanel extends EditReferencePanel {
 	@SuppressWarnings("unchecked")
 	void readXmlDataState(Element element) {
 		List<Element> programElements = element.getChildren("ADDR_HISTORY");
-		Iterator<Element> iter = programElements.iterator();
-		while (iter.hasNext()) {
-			Element programElement = iter.next();
+		for (Element programElement : programElements) {
 			String programName = programElement.getAttributeValue("PROGRAM");
 			Program program = getOpenProgram(programName);
 			if (program != null) {
 				AddressFactory addrFactory = program.getAddressFactory();
 				List<Element> addrElements = programElement.getChildren("ADDRESS");
-				Iterator<Element> addrIter = addrElements.iterator();
-				while (addrIter.hasNext()) {
-					Element addrElement = addrIter.next();
+				for (Element addrElement : addrElements) {
 					String addrStr = addrElement.getAttributeValue("VALUE");
 					if (addrStr != null) {
 						Address addr = addrFactory.getAddress(addrStr);

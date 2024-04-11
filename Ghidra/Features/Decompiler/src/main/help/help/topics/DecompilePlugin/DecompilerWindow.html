@@ -4,7 +4,7 @@
 <title>Decompiler Window</title>
 <link rel="stylesheet" type="text/css" href="help/shared/DefaultStyle.css">
 <link rel="stylesheet" type="text/css" href="../../shared/languages.css">
-<meta name="generator" content="DocBook XSL Stylesheets Vsnapshot">
+<meta name="generator" content="DocBook XSL Stylesheets V1.79.1">
 <link rel="home" href="Decompiler.html" title="Decompiler">
 <link rel="up" href="Decompiler.html" title="Decompiler">
 <link rel="prev" href="DecompilerOptions.html" title="Decompiler Options">
@@ -301,6 +301,34 @@
     aid for plug-in developers.
   </td></tr>
 </table></div>
+</div>
+
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ToolBarEliminateUnreachableCode"></a>Eliminate Unreachable Code</h3></div></div></div>
+  
+  <p>
+    <span class="guiicon">
+      <span class="inlinemediaobject"><img src="icon.decompiler.action.provider.unreachable" width="16" height="16"></span>
+      </span> - toggle button
+  </p>
+  <p>
+	Quickly turn off the <a class="xref" href="DecompilerOptions.html#AnalysisUnreachable"><span class="bold"><strong>Eliminate unreachable code</strong></span></a> decompiler setting.
+  </p>
+</div>
+
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ToolBarRespectReadOnly"></a>Respect Read-only Flags</h3></div></div></div>
+  
+  <p>
+    <span class="guiicon">
+      <span class="inlinemediaobject"><img src="icon.decompiler.action.provider.readonly" width="16" height="16"></span>
+      </span> - toggle button
+  </p>
+  <p>
+	Quickly turn off the <a class="xref" href="DecompilerOptions.html#AnalysisReadOnly"><span class="bold"><strong>Respect read-only flags</strong></span></a> decompiler setting.
+  </p>
 </div>
 
 <div class="sect2">
@@ -1080,6 +1108,21 @@
     parameter information by setting the function's prototype directly (see the
     <a class="xref" href="DecompilerWindow.html#ActionCommitParams" title="Commit Params/Return">Commit Params/Return</a> command).  In this situation, the "Override Signature"
     command is still possible, but it will bring up a confirmation dialog.
+  </p>
+</div>
+
+<div class="sect2">
+<div class="titlepage"><div><div><h3 class="title">
+<a name="ActionEditOverride"></a>Edit Signature Override</h3></div></div></div>
+  
+  <p>
+    Edit the overriding function prototype applied previously to the called function under the cursor.
+  </p>
+  <p>
+  	This action can only be triggered at call sites with an existing signature override. As with the Override 
+  	Signature command, users must select either the token representing the called function's name or the 
+  	tokens representing the function pointer at the call site. The action brings up a dialog where the user 
+  	can edit the current overriding function prototype. 
   </p>
 </div>
 

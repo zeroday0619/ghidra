@@ -103,6 +103,7 @@ public class DialogComponentProvider
 	private boolean isTransient = false;
 
 	private Dimension defaultSize;
+	private String accessibleDescription;
 
 	/**
 	 * Constructor for a DialogComponentProvider that will be modal and will include a status line and
@@ -639,10 +640,19 @@ public class DialogComponentProvider
 		Swing.runIfSwingOrRunLater(() -> doSetStatusText(text, type, alert));
 	}
 
+	/**
+	 * Sets a description of the dialog that will be read by screen readers when the dialog
+	 * is made visible.
+	 * @param description a description of the dialog
+	 */
+	public void setAccessibleDescription(String description) {
+		this.accessibleDescription = description;
+	}
+
 	private void doSetStatusText(String text, MessageType type, boolean alert) {
 
 		SystemUtilities
-			.assertThisIsTheSwingThread("Setting text must be performed on the Swing thread");
+				.assertThisIsTheSwingThread("Setting text must be performed on the Swing thread");
 
 		statusLabel.setText(text);
 		statusLabel.setForeground(getStatusColor(type));
@@ -677,7 +687,7 @@ public class DialogComponentProvider
 
 		// must be on Swing; this allows us to synchronize the 'alerting' flag
 		SystemUtilities
-			.assertThisIsTheSwingThread("Alerting must be performed on the Swing thread");
+				.assertThisIsTheSwingThread("Alerting must be performed on the Swing thread");
 
 		if (isAlerting) {
 			return;
@@ -1096,6 +1106,9 @@ public class DialogComponentProvider
 
 	void setDialog(DockingDialog dialog) {
 		this.dialog = dialog;
+		if (dialog != null) {
+			dialog.getAccessibleContext().setAccessibleDescription(accessibleDescription);
+		}
 	}
 
 	DockingDialog getDialog() {

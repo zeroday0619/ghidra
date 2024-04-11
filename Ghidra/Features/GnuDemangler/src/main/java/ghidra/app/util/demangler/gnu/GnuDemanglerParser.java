@@ -213,7 +213,7 @@ public class GnuDemanglerParser {
 	 * 			{lambda(NS1::Class1 const&, int, int)#1} const&
 	 *          {lambda(auto:1&&)#1}<NS1::NS2>&&
 	 *
-	 * Pattern: [optional text] brace lambda([parameters])#digits brace [trailing text]
+	 * Pattern: [optional text] { lambda([parameters])#digits } [trailing text]
 	 *
 	 * Parts:
 	 * 			-full text without leading characters (capture group 1)
@@ -227,12 +227,23 @@ public class GnuDemanglerParser {
 	/*
 	 * Sample:  {unnamed type#1}
 	 *
-	 * Pattern: [optional text] brace unnamed type#digits brace
+	 * Pattern: [optional text] { unnamed type#digits }
 	 *
 	 * Parts:
 	 * 			-full text without leading characters (capture group 1)
 	 */
 	private static final Pattern UNNAMED_TYPE_PATTERN = Pattern.compile("(\\{unnamed type#\\d+})");
+
+	/**
+	 * Sample:	template parameter object for namespace::StringLiteral<38ul>{char [38]{(char)69, (char)101, ... }}
+	 * 
+	 * Pattern: (text) { (array type) [size] { array contents } }
+	 * 
+	 * Parts:
+	 * 			-non-array definition prefix, which is the type (capture group 1)
+	 */
+	private static final Pattern ARRAY_DATA_PATTERN =
+		Pattern.compile("(.+)\\{(.+)\\[\\d*\\]\\{.*\\}\\}");
 
 	/*
 	 * Sample:  covariant return thunk to Foo::Bar::copy(Foo::CoolStructure*) const
@@ -320,6 +331,22 @@ public class GnuDemanglerParser {
 	 */
 	private static final Pattern LITERAL_NUMBER_PATTERN = Pattern.compile("-*\\d+[ul]{0,1}");
 
+	/**
+	 * Pattern to identify a legacy rust string that contains its hash id suffix and capture the
+	 * non-hash portion.
+	 * 
+	 * Legacy mangled rust symbols:
+	 * - start with _ZN
+	 * - end withe E or E.
+	 * - have a 16 digit hash that starts with 17h
+	 * 
+	 * The demangled string has the leading '17' and trailing 'E|E.' removed.
+	 * 
+	 * Sample: std::io::Read::read_to_end::hb85a0f6802e14499
+	 */
+	private static final Pattern RUST_LEGACY_SUFFIX_PATTERN =
+		Pattern.compile("(.*)::h[0-9a-f]{16}");
+
 	private String mangledSource;
 	private String demangledSource;
 
@@ -332,6 +359,8 @@ public class GnuDemanglerParser {
 	 * @throws DemanglerParseException if there is an unexpected error parsing
 	 */
 	public DemangledObject parse(String mangled, String demangled) throws DemanglerParseException {
+
+		demangled = cleanupRustLegacySymbol(demangled);
 
 		this.mangledSource = mangled;
 		this.demangledSource = demangled;
@@ -354,7 +383,7 @@ public class GnuDemanglerParser {
 		//       operator text.   Since the 'special handlers' perform more specific checks, it is
 		//       safe to do those first.
 		//
-		DemangledObjectBuilder handler = getSpecialPrefixHandler(mangledSource, demangled);
+		DemangledObjectBuilder handler = getSpecialPrefixHandler(demangled);
 		if (handler != null) {
 			return handler;
 		}
@@ -367,7 +396,7 @@ public class GnuDemanglerParser {
 		// Note: this really is a 'special handler' check that used to be handled above.  However,
 		//       some demangled operator strings begin with this text.  If we do this check above,
 		//       then we will not correctly handle those operators.
-		if (mangledSource.startsWith("_ZZ")) {
+		if (mangledSource.startsWith("_ZZ") || mangledSource.startsWith("__ZZ")) {
 			return new ItemInNamespaceHandler(demangled);
 		}
 
@@ -394,7 +423,7 @@ public class GnuDemanglerParser {
 		return null;
 	}
 
-	private SpecialPrefixHandler getSpecialPrefixHandler(String mangled, String demangled) {
+	private SpecialPrefixHandler getSpecialPrefixHandler(String demangled) {
 
 		Matcher matcher = DESCRIPTIVE_PREFIX_PATTERN.matcher(demangled);
 		if (matcher.matches()) {
@@ -410,6 +439,11 @@ public class GnuDemanglerParser {
 
 			if (prefix.startsWith(TYPEINFO_NAME_FOR)) {
 				return new TypeInfoNameHandler(demangled, TYPEINFO_NAME_FOR);
+			}
+
+			Matcher arrayMatcher = ARRAY_DATA_PATTERN.matcher(type);
+			if (arrayMatcher.matches()) {
+				return new ArrayHandler(demangled, prefix, type);
 			}
 
 			return new ItemInNamespaceHandler(demangled, prefix, type);
@@ -451,7 +485,7 @@ public class GnuDemanglerParser {
 		//
 		setNameAndNamespace(function, simpleName);
 
-		for (DemangledDataType parameter : signatureParts.getParameters()) {
+		for (DemangledParameter parameter : signatureParts.getParameters()) {
 			function.addParameter(parameter);
 		}
 
@@ -463,6 +497,14 @@ public class GnuDemanglerParser {
 		}
 
 		return function;
+	}
+
+	private String cleanupRustLegacySymbol(String demangled) {
+		Matcher m = RUST_LEGACY_SUFFIX_PATTERN.matcher(demangled);
+		if (m.matches()) {
+			return m.group(1);
+		}
+		return demangled;
 	}
 
 	private void setReturnType(String demangled, DemangledFunction function, String returnType) {
@@ -588,9 +630,9 @@ public class GnuDemanglerParser {
 	 * Reason being, you need to take into account nested templates
 	 * and function pointers.
 	 */
-	private List<DemangledDataType> parseParameters(String parameterString) {
+	private List<DemangledParameter> parseParameters(String parameterString) {
 		List<String> parameterStrings = tokenizeParameters(parameterString);
-		List<DemangledDataType> parameters = convertIntoParameters(parameterStrings);
+		List<DemangledParameter> parameters = convertIntoParameters(parameterStrings);
 		return parameters;
 	}
 
@@ -693,12 +735,12 @@ public class GnuDemanglerParser {
 	 * This method converts each parameter string into
 	 * actual DemangledDataType objects.
 	 */
-	private List<DemangledDataType> convertIntoParameters(List<String> parameterStrings) {
-		List<DemangledDataType> parameters = new ArrayList<>();
+	private List<DemangledParameter> convertIntoParameters(List<String> parameterStrings) {
+		List<DemangledParameter> parameters = new ArrayList<>();
 
 		for (String parameter : parameterStrings) {
 			DemangledDataType dt = parseParameter(parameter);
-			parameters.add(dt);
+			parameters.add(new DemangledParameter(dt));
 		}
 
 		return parameters;
@@ -753,6 +795,14 @@ public class GnuDemanglerParser {
 		boolean finishedName = false;
 		for (int i = 0; i < datatype.length(); ++i) {
 			char ch = datatype.charAt(i);
+
+			//
+			// Hack: Not sure what this is, but we have seen template parameter values that start
+			// with an '&'
+			//
+			if (ch == '&' && i == 0) {
+				continue; // for now, let the '&' through to be part of the name
+			}
 
 			if (!finishedName && isDataTypeNameCharacter(ch)) {
 				continue;
@@ -1261,10 +1311,10 @@ public class GnuDemanglerParser {
 			contents = string.substring(1, string.length() - 1);
 		}
 
-		List<DemangledDataType> parameters = parseParameters(contents);
+		List<DemangledParameter> parameters = parseParameters(contents);
 		DemangledTemplate template = new DemangledTemplate();
-		for (DemangledDataType parameter : parameters) {
-			template.addParameter(parameter);
+		for (DemangledParameter parameter : parameters) {
+			template.addParameter(parameter.getType());
 		}
 		return template;
 	}
@@ -1349,16 +1399,16 @@ public class GnuDemanglerParser {
 		return dfp;
 	}
 
-	private DemangledFunctionPointer createFunctionPointer(String paramerterString,
+	private DemangledFunctionPointer createFunctionPointer(String parameterString,
 			String returnType) {
 
-		List<DemangledDataType> parameters = parseParameters(paramerterString);
+		List<DemangledParameter> parameters = parseParameters(parameterString);
 
 		DemangledFunctionPointer dfp = new DemangledFunctionPointer(mangledSource, demangledSource);
 		DemangledDataType returnDataType = parseReturnType(returnType);
 		dfp.setReturnType(returnDataType);
-		for (DemangledDataType parameter : parameters) {
-			dfp.addParameter(parameter);
+		for (DemangledParameter parameter : parameters) {
+			dfp.addParameter(parameter.getType());
 		}
 		return dfp;
 	}
@@ -1488,6 +1538,52 @@ public class GnuDemanglerParser {
 		@Override
 		DemangledObject doBuild(Demangled namespace) {
 			DemangledObject demangledObject = parseItemInNamespace(type);
+			return demangledObject;
+		}
+	}
+
+	private class ArrayHandler extends SpecialPrefixHandler {
+
+		private String arrayType;
+
+		ArrayHandler(String demangled, String prefix, String item) {
+			super(demangled);
+			this.demangled = demangled;
+			this.prefix = prefix;
+			this.type = item;
+
+			//
+			// Handle array data definitions here for now.  If we see this in non-specialized prefix
+			// cases, then we can extract this code.
+			//
+			Matcher arrayMatcher = ARRAY_DATA_PATTERN.matcher(type);
+			if (arrayMatcher.matches()) {
+				// keep only the type information, dropping the array definition
+				type = arrayMatcher.group(1);
+				arrayType = arrayMatcher.group(2).trim();
+			}
+
+		}
+
+		@Override
+		DemangledObject doBuild(Demangled namespace) {
+			DemangledObject demangledObject = parseItemInNamespace(type);
+			if (demangledObject instanceof DemangledVariable variable) {
+
+				//
+				// Creating a DemangledString here will correctly create the string data when this
+				// demangled type is applied.
+				//
+				if ("char".equals(arrayType) && type.contains("StringLiteral")) {
+					// treat a char[] as a string
+					DemangledString ds =
+						new DemangledString(variable.getMangledString(), demangled, type, type,
+							-1 /*unknown length*/, false);
+					ds.setSpecialPrefix(prefix);
+					return ds;
+				}
+
+			}
 			return demangledObject;
 		}
 	}
@@ -1793,8 +1889,8 @@ public class GnuDemanglerParser {
 			// operator itself could be in a class namespace
 			setNameAndNamespace(function, operatorText);
 
-			List<DemangledDataType> parameters = parseParameters(parametersText);
-			for (DemangledDataType parameter : parameters) {
+			List<DemangledParameter> parameters = parseParameters(parametersText);
+			for (DemangledParameter parameter : parameters) {
 				function.addParameter(parameter);
 			}
 
@@ -1933,7 +2029,7 @@ public class GnuDemanglerParser {
 		private String name;
 		private String rawParameterPrefix;
 
-		private List<DemangledDataType> parameters;
+		private List<DemangledParameter> parameters;
 
 		FunctionSignatureParts(String signatureString) {
 
@@ -1981,7 +2077,7 @@ public class GnuDemanglerParser {
 			return isFunction;
 		}
 
-		List<DemangledDataType> getParameters() {
+		List<DemangledParameter> getParameters() {
 			return parameters;
 		}
 

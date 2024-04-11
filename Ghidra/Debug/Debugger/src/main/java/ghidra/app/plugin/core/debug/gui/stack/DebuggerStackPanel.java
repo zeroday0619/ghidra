@@ -22,17 +22,17 @@ import javax.swing.event.ListSelectionListener;
 
 import docking.widgets.table.AbstractDynamicTableColumn;
 import docking.widgets.table.TableColumnDescriptor;
-import ghidra.app.plugin.core.debug.DebuggerCoordinates;
 import ghidra.app.plugin.core.debug.gui.model.*;
-import ghidra.app.plugin.core.debug.gui.model.AbstractQueryTablePanel.CellActivationListener;
 import ghidra.app.plugin.core.debug.gui.model.ObjectTableModel.ValueRow;
 import ghidra.app.plugin.core.debug.gui.model.columns.TraceValueKeyColumn;
 import ghidra.app.plugin.core.debug.gui.model.columns.TraceValueObjectAttributeColumn;
+import ghidra.app.plugin.core.debug.service.modules.DebuggerStaticMappingUtils;
 import ghidra.app.services.DebuggerTraceManagerService;
 import ghidra.dbg.target.TargetStack;
 import ghidra.dbg.target.TargetStackFrame;
 import ghidra.dbg.target.schema.TargetObjectSchema;
 import ghidra.dbg.util.PathMatcher;
+import ghidra.debug.api.tracemgr.DebuggerCoordinates;
 import ghidra.docking.settings.Settings;
 import ghidra.framework.plugintool.Plugin;
 import ghidra.framework.plugintool.ServiceProvider;
@@ -45,7 +45,7 @@ import ghidra.trace.model.target.TraceObject;
 import ghidra.trace.model.target.TraceObjectValue;
 
 public class DebuggerStackPanel extends AbstractObjectsTableBasedPanel<TraceObjectStackFrame>
-		implements ListSelectionListener, CellActivationListener {
+		implements ListSelectionListener {
 
 	private static class FrameLevelColumn extends TraceValueKeyColumn {
 		@Override
@@ -83,7 +83,29 @@ public class DebuggerStackPanel extends AbstractObjectsTableBasedPanel<TraceObje
 				ServiceProvider serviceProvider) throws IllegalArgumentException {
 			TraceObjectValue value =
 				rowObject.getAttributeEntry(TargetStackFrame.PC_ATTRIBUTE_NAME);
-			return value == null ? null : provider.getFunction((Address) value.getValue());
+			if (value == null) {
+				return null;
+			}
+			return DebuggerStaticMappingUtils.getFunction(value.castValue(), provider.current,
+				serviceProvider);
+		}
+	}
+
+	private class FrameModuleColumn extends AbstractDynamicTableColumn<ValueRow, String, Trace> {
+		@Override
+		public String getColumnName() {
+			return "Module";
+		}
+
+		@Override
+		public String getValue(ValueRow rowObject, Settings settings, Trace data,
+				ServiceProvider serviceProvider) throws IllegalArgumentException {
+			TraceObjectValue value =
+				rowObject.getAttributeEntry(TargetStackFrame.PC_ATTRIBUTE_NAME);
+			if (value == null) {
+				return null;
+			}
+			return DebuggerStaticMappingUtils.getModuleName(value.castValue(), provider.current);
 		}
 	}
 
@@ -98,6 +120,7 @@ public class DebuggerStackPanel extends AbstractObjectsTableBasedPanel<TraceObje
 			descriptor.addVisibleColumn(new FrameLevelColumn(), 1, true);
 			descriptor.addVisibleColumn(new FramePcColumn());
 			descriptor.addVisibleColumn(new FrameFunctionColumn());
+			descriptor.addVisibleColumn(new FrameModuleColumn());
 			return descriptor;
 		}
 	}
@@ -113,7 +136,7 @@ public class DebuggerStackPanel extends AbstractObjectsTableBasedPanel<TraceObje
 	}
 
 	@Override
-	protected ObjectTableModel createModel(Plugin plugin) {
+	protected ObjectTableModel createModel() {
 		return new StackTableModel(plugin);
 	}
 
@@ -141,7 +164,11 @@ public class DebuggerStackPanel extends AbstractObjectsTableBasedPanel<TraceObje
 
 	@Override
 	public void cellActivated(JTable table) {
-		// No super
+		/**
+		 * Override, because PC columns is fairly wide and representative of the stack frame.
+		 * Likely, when the user double-clicks, they mean to activate the frame, even if it happens
+		 * to be in that column. Simply going to the address will confuse and/or disappoint.
+		 */
 		ValueRow item = getSelectedItem();
 		if (item != null) {
 			traceManager.activateObject(item.getValue().getChild());

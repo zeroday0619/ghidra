@@ -50,6 +50,8 @@ STACK_PATTERN = THREAD_PATTERN + '.Stack'
 FRAME_KEY_PATTERN = '[{level}]'
 FRAME_PATTERN = STACK_PATTERN + FRAME_KEY_PATTERN
 REGS_PATTERN = FRAME_PATTERN + '.Registers'
+REG_KEY_PATTERN = '[{regname}]'
+REG_PATTERN = REGS_PATTERN + REG_KEY_PATTERN
 MEMORY_PATTERN = INFERIOR_PATTERN + '.Memory'
 REGION_KEY_PATTERN = '[{start:08x}]'
 REGION_PATTERN = MEMORY_PATTERN + REGION_KEY_PATTERN
@@ -163,21 +165,22 @@ def cmd(cli_name, mi_name, cli_class, cli_repeat):
         _CLICmd.__doc__ = func.__doc__
         _CLICmd()
 
-        class _MICmd(gdb.MICommand):
+        if hasattr(gdb, 'MICommand'):
+            class _MICmd(gdb.MICommand):
 
-            def __init__(self):
-                super().__init__(mi_name)
+                def __init__(self):
+                    super().__init__(mi_name)
 
-            def invoke(self, argv):
-                try:
-                    return func(*argv, is_mi=True)
-                except TypeError as e:
-                    raise gdb.GdbError(e.args[0].replace(func.__name__ + "()",
-                                       mi_name))
+                def invoke(self, argv):
+                    try:
+                        return func(*argv, is_mi=True)
+                    except TypeError as e:
+                        raise gdb.GdbError(e.args[0].replace(func.__name__ + "()",
+                                           mi_name))
 
-        _MICmd.__doc__ = func.__doc__
-        _MICmd()
-        return func
+            _MICmd.__doc__ = func.__doc__
+            _MICmd()
+            return func
 
     return _cmd
 
@@ -199,7 +202,9 @@ def ghidra_trace_connect(address, *, is_mi, **kwargs):
     try:
         c = socket.socket()
         c.connect((host, int(port)))
-        STATE.client = Client(c, methods.REGISTRY)
+        STATE.client = Client(
+            c, "gdb-" + util.GDB_VERSION.full, methods.REGISTRY)
+        print(f"Connected to {STATE.client.description} at {address}")
     except ValueError:
         raise gdb.GdbError("port must be numeric")
 
@@ -236,7 +241,8 @@ def ghidra_trace_listen(address=None, *, is_mi, **kwargs):
         c, (chost, cport) = s.accept()
         s.close()
         gdb.write("Connection from {}:{}\n".format(chost, cport))
-        STATE.client = Client(c, methods.REGISTRY)
+        STATE.client = Client(
+            c, "gdb-" + util.GDB_VERSION.full, methods.REGISTRY)
     except ValueError:
         raise gdb.GdbError("port must be numeric")
 
@@ -270,8 +276,11 @@ def start_trace(name):
     with open(schema_fn, 'r') as schema_file:
         schema_xml = schema_file.read()
     with STATE.trace.open_tx("Create Root Object"):
-        root = STATE.trace.create_root_object(schema_xml, 'Session')
+        root = STATE.trace.create_root_object(schema_xml, 'GdbSession')
         root.set_value('_display', 'GNU gdb ' + util.GDB_VERSION.full)
+        STATE.trace.create_object(AVAILABLES_PATH).insert()
+        STATE.trace.create_object(BREAKPOINTS_PATH).insert()
+        STATE.trace.create_object(INFERIORS_PATH).insert()
     gdb.set_convenience_variable('_ghidra_tracing', True)
 
 
@@ -318,9 +327,11 @@ def ghidra_trace_info(*, is_mi, **kwargs):
         return
     host, port = STATE.client.s.getpeername()
     if is_mi:
-        result['connection'] = "{}:{}".format(host, port)
+        result['description'] = STATE.client.description
+        result['address'] = f"{host}:{port}"
     else:
-        gdb.write("Connected to Ghidra at {}:{}\n".format(host, port))
+        gdb.write(
+            f"Connected to {STATE.client.description} at {host}:{port}\n")
     if STATE.trace is None:
         if is_mi:
             result['tracing'] = False
@@ -460,11 +471,14 @@ def ghidra_trace_set_snap(snap, *, is_mi, **kwargs):
     STATE.require_trace().set_snap(int(gdb.parse_and_eval(snap)))
 
 
+def quantize_pages(start, end):
+    return (start // PAGE_SIZE * PAGE_SIZE, (end+PAGE_SIZE-1) // PAGE_SIZE*PAGE_SIZE)
+
+
 def put_bytes(start, end, pages, is_mi, from_tty):
     trace = STATE.require_trace()
     if pages:
-        start = start // PAGE_SIZE * PAGE_SIZE
-        end = (end + PAGE_SIZE - 1) // PAGE_SIZE * PAGE_SIZE
+        start, end = quantize_pages(start, end)
     inf = gdb.selected_inferior()
     buf = bytes(inf.read_memory(start, end - start))
 
@@ -479,6 +493,8 @@ def put_bytes(start, end, pages, is_mi, from_tty):
 
 
 def eval_address(address):
+    if isinstance(address, int):
+        return address
     try:
         return int(gdb.parse_and_eval(address))
     except gdb.error as e:
@@ -487,10 +503,13 @@ def eval_address(address):
 
 def eval_range(address, length):
     start = eval_address(address)
-    try:
-        end = start + int(gdb.parse_and_eval(length))
-    except gdb.error as e:
-        raise gdb.GdbError("Cannot convert '{}' to length".format(length))
+    if isinstance(length, int):
+        end = start + length
+    else:
+        try:
+            end = start + int(gdb.parse_and_eval(length))
+        except gdb.error as e:
+            raise gdb.GdbError("Cannot convert '{}' to length".format(length))
     return start, end
 
 
@@ -525,6 +544,18 @@ def ghidra_trace_putval(value, pages=True, *, is_mi, from_tty=True, **kwargs):
     return put_bytes(start, end, pages, is_mi, from_tty)
 
 
+def putmem_state(address, length, state, pages=True):
+    STATE.trace.validate_state(state)
+    start, end = eval_range(address, length)
+    if pages:
+        start, end = quantize_pages(start, end)
+    inf = gdb.selected_inferior()
+    base, addr = STATE.trace.memory_mapper.map(inf, start)
+    if base != addr.space:
+        STATE.trace.create_overlay_space(base, addr.space)
+    STATE.trace.set_memory_state(addr.extend(end - start), state)
+
+
 @cmd('ghidra trace putmem-state', '-ghidra-trace-putmem-state', gdb.COMMAND_DATA, True)
 def ghidra_trace_putmem_state(address, length, state, *, is_mi, **kwargs):
     """
@@ -532,13 +563,7 @@ def ghidra_trace_putmem_state(address, length, state, *, is_mi, **kwargs):
     """
 
     STATE.require_tx()
-    STATE.trace.validate_state(state)
-    start, end = eval_range(address, length)
-    inf = gdb.selected_inferior()
-    base, addr = STATE.trace.memory_mapper.map(inf, start)
-    if base != addr.space:
-        trace.create_overlay_space(base, addr.space)
-    STATE.trace.set_memory_state(addr.extend(end - start), state)
+    putmem_state(address, length, state, True)
 
 
 @cmd('ghidra trace delmem', '-ghidra-trace-delmem', gdb.COMMAND_DATA, True)
@@ -562,17 +587,28 @@ def ghidra_trace_delmem(address, length, *, is_mi, **kwargs):
 def putreg(frame, reg_descs):
     inf = gdb.selected_inferior()
     space = REGS_PATTERN.format(infnum=inf.num, tnum=gdb.selected_thread().num,
-                                level=frame.level())
+                                level=util.get_level(frame))
     STATE.trace.create_overlay_space('register', space)
-    robj = STATE.trace.create_object(space)
-    robj.insert()
+    cobj = STATE.trace.create_object(space)
+    cobj.insert()
     mapper = STATE.trace.register_mapper
+    keys = []
     values = []
     for desc in reg_descs:
-        v = frame.read_register(desc)
-        values.append(mapper.map_value(inf, desc.name, v))
+        v = frame.read_register(desc.name)
+        rv = mapper.map_value(inf, desc.name, v)
+        values.append(rv)
+        # TODO: Key by gdb's name or mapped name? I think gdb's.
+        rpath = REG_PATTERN.format(infnum=inf.num, tnum=gdb.selected_thread(
+        ).num, level=util.get_level(frame), regname=desc.name)
+        keys.append(REG_KEY_PATTERN.format(regname=desc.name))
+        robj = STATE.trace.create_object(rpath)
+        robj.set_value('_value', rv.value)
+        robj.insert()
+    cobj.retain_values(keys)
     # TODO: Memorize registers that failed for this arch, and omit later.
-    return {'missing': STATE.trace.put_registers(space, values)}
+    missing = STATE.trace.put_registers(space, values)
+    return {'missing': missing}
 
 
 @cmd('ghidra trace putreg', '-ghidra-trace-putreg', gdb.COMMAND_DATA, True)
@@ -585,7 +621,8 @@ def ghidra_trace_putreg(group='all', *, is_mi, **kwargs):
 
     STATE.require_tx()
     frame = gdb.selected_frame()
-    return putreg(frame, frame.architecture().registers(group))
+    with STATE.client.batch() as b:
+        return putreg(frame, util.get_register_descs(frame.architecture(), group))
 
 
 @cmd('ghidra trace delreg', '-ghidra-trace-delreg', gdb.COMMAND_DATA, True)
@@ -600,11 +637,11 @@ def ghidra_trace_delreg(group='all', *, is_mi, **kwargs):
     inf = gdb.selected_inferior()
     frame = gdb.selected_frame()
     space = 'Inferiors[{}].Threads[{}].Stack[{}].Registers'.format(
-        inf.num, gdb.selected_thread().num, frame.level()
+        inf.num, gdb.selected_thread().num, util.get_level(frame)
     )
     mapper = STATE.trace.register_mapper
     names = []
-    for desc in frame.architecture().registers(group):
+    for desc in util.get_register_descs(frame.architecture(), group):
         names.append(mapper.map_name(inf, desc.name))
     return STATE.trace.delete_registers(space, names)
 
@@ -926,7 +963,7 @@ def activate(path=None):
         else:
             frame = gdb.selected_frame()
             path = FRAME_PATTERN.format(
-                infnum=inf.num, tnum=t.num, level=frame.level())
+                infnum=inf.num, tnum=t.num, level=util.get_level(frame))
     trace.proxy_object_path(path).activate()
 
 
@@ -977,6 +1014,17 @@ def compute_inf_state(inf):
     return 'STOPPED'
 
 
+def put_inferior_state(inf):
+    ipath = INFERIOR_PATTERN.format(infnum=inf.num)
+    infobj = STATE.trace.proxy_object_path(ipath)
+    istate = compute_inf_state(inf)
+    infobj.set_value('_state', istate)
+    for t in inf.threads():
+        tpath = THREAD_PATTERN.format(infnum=inf.num, tnum=t.num)
+        tobj = STATE.trace.proxy_object_path(tpath)
+        tobj.set_value('_state', convert_state(t))
+
+
 def put_inferiors():
     # TODO: Attributes like _exit_code, _state?
     #     _state would be derived from threads
@@ -1013,7 +1061,7 @@ def put_available():
         procobj = STATE.trace.create_object(ppath)
         keys.append(AVAILABLE_KEY_PATTERN.format(pid=proc.pid))
         procobj.set_value('_pid', proc.pid)
-        procobj.set_value('_display', '{} {}'.format(proc.pid, proc.name))
+        procobj.set_value('_display', '{} {}'.format(proc.pid, proc.name()))
         procobj.insert()
     STATE.trace.proxy_object_path(AVAILABLES_PATH).retain_values(keys)
 
@@ -1034,6 +1082,7 @@ def put_single_breakpoint(b, ibobj, inf, ikeys):
     mapper = STATE.trace.memory_mapper
     bpath = BREAKPOINT_PATTERN.format(breaknum=b.number)
     brkobj = STATE.trace.create_object(bpath)
+    brkobj.set_value('_enabled', b.enabled)
     if b.type == gdb.BP_BREAKPOINT:
         brkobj.set_value('_expression', b.location)
         brkobj.set_value('_kinds', 'SW_EXECUTE')
@@ -1073,6 +1122,7 @@ def put_single_breakpoint(b, ibobj, inf, ikeys):
         if inf.num not in l.thread_groups:
             continue
         locobj = STATE.trace.create_object(bpath + k)
+        locobj.set_value('_enabled', l.enabled)
         ik = INF_BREAK_KEY_PATTERN.format(breaknum=b.number, locnum=i+1)
         ikeys.append(ik)
         if b.location is not None:  # Implies execution break
@@ -1191,9 +1241,10 @@ def ghidra_trace_put_regions(*, is_mi, **kwargs):
         put_regions()
 
 
-def put_modules():
+def put_modules(modules=None, sections=False):
     inf = gdb.selected_inferior()
-    modules = util.MODULE_INFO_READER.get_modules()
+    if modules is None:
+        modules = util.MODULE_INFO_READER.get_modules()
     mapper = STATE.trace.memory_mapper
     mod_keys = []
     for mk, m in modules.items():
@@ -1205,29 +1256,32 @@ def put_modules():
         if base_base != base_addr.space:
             STATE.trace.create_overlay_space(base_base, base_addr.space)
         modobj.set_value('_range', base_addr.extend(m.max - m.base))
-        sec_keys = []
-        for sk, s in m.sections.items():
-            spath = mpath + SECTION_ADD_PATTERN.format(secname=sk)
-            secobj = STATE.trace.create_object(spath)
-            sec_keys.append(SECTION_KEY_PATTERN.format(secname=sk))
-            start_base, start_addr = mapper.map(inf, s.start)
-            if start_base != start_addr.space:
-                STATE.trace.create_overlay_space(
-                    start_base, start_addr.space)
-            secobj.set_value('_range', start_addr.extend(s.end - s.start))
-            secobj.set_value('_offset', s.offset)
-            secobj.set_value('_attrs', s.attrs, schema=sch.STRING_ARR)
-            secobj.insert()
-        # In case there are no sections, we must still insert the module
-        modobj.insert()
-        STATE.trace.proxy_object_path(
-            mpath + SECTIONS_ADD_PATTERN).retain_values(sec_keys)
-    STATE.trace.proxy_object_path(MODULES_PATTERN.format(
-        infnum=inf.num)).retain_values(mod_keys)
+        if sections:
+            sec_keys = []
+            for sk, s in m.sections.items():
+                spath = mpath + SECTION_ADD_PATTERN.format(secname=sk)
+                secobj = STATE.trace.create_object(spath)
+                sec_keys.append(SECTION_KEY_PATTERN.format(secname=sk))
+                start_base, start_addr = mapper.map(inf, s.start)
+                if start_base != start_addr.space:
+                    STATE.trace.create_overlay_space(
+                        start_base, start_addr.space)
+                secobj.set_value('_range', start_addr.extend(s.end - s.start))
+                secobj.set_value('_offset', s.offset)
+                secobj.set_value('_attrs', s.attrs, schema=sch.STRING_ARR)
+                secobj.insert()
+            STATE.trace.proxy_object_path(
+                mpath + SECTIONS_ADD_PATTERN).retain_values(sec_keys)
+
+        scpath = mpath + SECTIONS_ADD_PATTERN
+        sec_container_obj = STATE.trace.create_object(scpath)
+        sec_container_obj.insert()
+    if not sections:
+        STATE.trace.proxy_object_path(MODULES_PATTERN.format(
+            infnum=inf.num)).retain_values(mod_keys)
 
 
-@cmd('ghidra trace put-modules', '-ghidra-trace-put-modules', gdb.COMMAND_DATA,
-     True)
+@cmd('ghidra trace put-modules', '-ghidra-trace-put-modules', gdb.COMMAND_DATA, True)
 def ghidra_trace_put_modules(*, is_mi, **kwargs):
     """
     Gather object files, if applicable, and write to the trace's Modules.
@@ -1236,6 +1290,25 @@ def ghidra_trace_put_modules(*, is_mi, **kwargs):
     STATE.require_tx()
     with STATE.client.batch() as b:
         put_modules()
+
+
+@cmd('ghidra trace put-sections', '-ghidra-trace-put-sections', gdb.COMMAND_DATA, True)
+def ghidra_trace_put_sections(module_name, *, is_mi, **kwargs):
+    """
+    Write the sections of the given module or all modules
+    """
+
+    modules = None
+    if module_name != '-all-objects':
+        modules = {mk: m for mk, m in util.MODULE_INFO_READER.get_modules(
+        ).items() if mk == module_name}
+        if len(modules) == 0:
+            raise gdb.GdbError(
+                "No module / object named {}".format(module_name))
+
+    STATE.require_tx()
+    with STATE.client.batch() as b:
+        put_modules(modules, True)
 
 
 def convert_state(t):
@@ -1330,19 +1403,21 @@ def put_frames():
     bt = gdb.execute('bt', to_string=True).strip().split('\n')
     f = newest_frame(gdb.selected_frame())
     keys = []
+    level = 0
     while f is not None:
         fpath = FRAME_PATTERN.format(
-            infnum=inf.num, tnum=t.num, level=f.level())
+            infnum=inf.num, tnum=t.num, level=level)
         fobj = STATE.trace.create_object(fpath)
-        keys.append(FRAME_KEY_PATTERN.format(level=f.level()))
+        keys.append(FRAME_KEY_PATTERN.format(level=level))
         base, pc = mapper.map(inf, f.pc())
         if base != pc.space:
             STATE.trace.create_overlay_space(base, pc.space)
         fobj.set_value('_pc', pc)
         fobj.set_value('_func', str(f.function()))
         fobj.set_value(
-            '_display', bt[f.level()].strip().replace('\\s+', ' '))
+            '_display', bt[level].strip().replace('\\s+', ' '))
         f = f.older()
+        level += 1
         fobj.insert()
     STATE.trace.proxy_object_path(STACK_PATTERN.format(
         infnum=inf.num, tnum=t.num)).retain_values(keys)
@@ -1373,8 +1448,8 @@ def ghidra_trace_put_all(*, is_mi, **kwargs):
         ghidra_trace_putmem("$sp", "1", is_mi=is_mi)
         put_inferiors()
         put_environment()
-        put_regions()
         put_modules()
+        put_regions()
         put_threads()
         put_frames()
         put_breakpoints()
@@ -1431,12 +1506,25 @@ def ghidra_trace_sync_disable(*, is_mi, **kwargs):
     """
     Cease synchronizing the current inferior with the Ghidra trace.
 
-    This is the opposite of 'ghidra trace sync-disable', except it will not
+    This is the opposite of 'ghidra trace sync-enable', except it will not
     automatically remove hooks.
     """
 
     hooks.disable_current_inferior()
 
+
+@cmd('ghidra trace sync-synth-stopped', '-ghidra-trace-sync-synth-stopped',
+     gdb.COMMAND_SUPPORT, False)
+def ghidra_trace_sync_synth_stopped(*, is_mi, **kwargs):
+    """
+    Act as though the target has just stopped.
+
+    This may need to be invoked immediately after 'ghidra trace sync-enable',
+    to ensure the first snapshot displays the initial/current target state.
+    """
+
+    hooks.on_stop(object())  # Pass a fake event
+    
 
 @cmd('ghidra util wait-stopped', '-ghidra-util-wait-stopped', gdb.COMMAND_NONE, False)
 def ghidra_util_wait_stopped(timeout='1', *, is_mi, **kwargs):

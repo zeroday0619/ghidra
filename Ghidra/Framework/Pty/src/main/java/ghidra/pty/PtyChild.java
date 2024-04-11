@@ -15,6 +15,7 @@
  */
 package ghidra.pty;
 
+import java.io.File;
 import java.io.IOException;
 import java.util.*;
 
@@ -51,25 +52,37 @@ public interface PtyChild extends PtyEndpoint {
 	 * 
 	 * @param args the image path and arguments
 	 * @param env the environment
+	 * @param workingDirectory the working directory
 	 * @param mode the terminal mode. If a mode is not implemented, it may be silently ignored.
 	 * @return a handle to the subprocess
 	 * @throws IOException if the session could not be started
 	 */
-	PtySession session(String[] args, Map<String, String> env, Collection<TermMode> mode)
-			throws IOException;
+	PtySession session(String[] args, Map<String, String> env, File workingDirectory,
+			Collection<TermMode> mode) throws IOException;
 
+	/**
+	 * @see #session(String[], Map, File, Collection)
+	 */
+	default PtySession session(String[] args, Map<String, String> env, File workingDirectory,
+			TermMode... mode) throws IOException {
+		return session(args, env, workingDirectory, List.of(mode));
+	}
+
+	/**
+	 * @see #session(String[], Map, File, Collection)
+	 */
 	default PtySession session(String[] args, Map<String, String> env, TermMode... mode)
 			throws IOException {
-		return session(args, env, List.of(mode));
+		return session(args, env, null, List.of(mode));
 	}
 
 	/**
 	 * Start a session without a real leader, instead obtaining the pty's name
 	 * 
 	 * <p>
-	 * This method or {@link #session(String[], Map, Collection)} can only be invoked once per pty.
-	 * It must be called before anyone reads the parent's output stream, since obtaining the
-	 * filename may be implemented by the parent sending commands to its child.
+	 * This method or any other {@code session} method can only be invoked once per pty. It must be
+	 * called before anyone reads the parent's output stream, since obtaining the filename may be
+	 * implemented by the parent sending commands to its child.
 	 * 
 	 * <p>
 	 * If the child end of the pty is on a remote system, this should be the file (or other
@@ -82,7 +95,18 @@ public interface PtyChild extends PtyEndpoint {
 	 */
 	String nullSession(Collection<TermMode> mode) throws IOException;
 
+	/**
+	 * @see #nullSession(Collection)
+	 */
 	default String nullSession(TermMode... mode) throws IOException {
 		return nullSession(List.of(mode));
 	}
+
+	/**
+	 * Resize the terminal window to the given width and height, in characters
+	 * 
+	 * @param cols the width in characters
+	 * @param rows the height in characters
+	 */
+	void setWindowSize(short cols, short rows);
 }

@@ -361,6 +361,7 @@ message ReplyGetValues {
 message RequestGetValuesIntersecting {
 	DomObjId oid = 1;
 	Box box = 2;
+	string key = 3;
 }
 
 // Analysis operations
@@ -416,19 +417,22 @@ message MethodArgument {
 message Method {
 	string name = 1;
 	string action = 2;
-	string description = 3;
-	repeated MethodParameter parameters = 4;
+	string display = 3;
+	string description = 4;
+	repeated MethodParameter parameters = 5;
 	// I'd like to make them all void, but I think executing a command and capturing its output
 	// justifies being able to return a result. It should be used very sparingly.
-	ValueType return_type = 5;
+	ValueType return_type = 6;
 }
 
 message RequestNegotiate {
 	string version = 1;
 	repeated Method methods = 2;
+	string description = 3;
 }
 
 message ReplyNegotiate {
+	string description = 1;
 }
 
 message XRequestInvokeMethod {
